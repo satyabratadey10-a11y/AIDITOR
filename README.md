@@ -15,20 +15,16 @@
   <i>True Optical Flow 60 FPS Synthesis • 3D Motion Tracking • Rotoscoping • Audio-Visual Beat Sync • Generative SaaS Graphics • Zero-Dependency Python.</i>
 </p>
 
+<br>
+
+<!-- 🎬 AUTO-PLAYING GENERATIVE SAAS ANIMATION PREVIEW -->
+<p align="center">
+  <img src="docs/assets/saas_promo_preview.gif" width="380" alt="AIDITOR 10-Second Generative SaaS Promo Animation (60 FPS)" style="border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.6);" />
+  <br>
+  <sub><i>⚡ 10-Second Programmatic SaaS Motion Graphics rendered 100% from scratch via AIDITOR Generative Core</i></sub>
+</p>
+
 </div>
-
----
-
-## 🚀 Key Subsystems & Highlights
-
-- 🎬 **True Optical Flow Frame Synthesis (MCI)**: Synthesizes genuine non-static intermediate motion vectors to **60.0 FPS** using bidirectional EPZS estimation and AOBMC smoothing with scene-cut detection (`--scd 10.0`).
-- 🎯 **Motion Tracking & 3D HUD Callouts**: Real-time bounding box tracking, cyber HUD telemetry pinning, and camera lock-on / face stabilization.
-- ✂️ **Subject Rotoscoping & 3D Typography**: Dynamic matte extraction allowing large 3D typography and neon energy contours to be composited **behind** moving vehicles and subjects.
-- 📈 **Bézier Speed Graphs & Camera Zoom Curves**: Continuous $C^1/C^2$ easing profiles (`ease_out_expo`, `punch_zoom_pulse`, `flash_impact_ramp`) with instant ASCII terminal visualizers.
-- 🎵 **Phonk Audio-Visual Beat Sync Studio**: Multi-band spectral energy transient detection, cutting video to beat drops with dynamic speed ramps, screen shake, chromatic aberration, and glow flashes.
-- 💻 **Programmatic Generative SaaS Motion Graphics**: Renders dark-mode glassmorphism UI dashboards, live undulating metric charts, typing CLI prompts, and synthesized stereo DSP audio from 100% pure code.
-- 📦 **VFX Studio Exporters**: Solves 3D camera tracking data and outputs native scripts for **Blender** (`.py`), **Foundry Nuke** (`.nk`), and **Adobe After Effects** (`.jsx`).
-- ⚡ **Zero External Heavy Dependencies**: Runs 100% on the Python 3 standard library and system `ffmpeg`/`ffprobe`. Fully optimized for ARM64 Snapdragon NEON and x86_64 architectures.
 
 ---
 
@@ -47,7 +43,8 @@ AIDITOR was tested by generating a **complete 10.0-second SaaS motion graphics p
  • Audio Bitrate    : 192 kbps AAC Stereo (Custom 44.1kHz DSP Synthesized Soundtrack)
  • Render Pipeline  : Multi-process SVG/PNG Vector Core (8 ARMv8 NEON Workers)
  • Output File Size : 15.1 MB
- • Output Path      : /sdcard/Download/antigravity_saas_promo_60fps.mp4
+ • Video File Asset : docs/assets/antigravity_saas_promo_60fps.mp4
+ • Live Preview     : docs/assets/saas_promo_preview.gif
 ========================================================================================
 ```
 
@@ -65,6 +62,19 @@ AIDITOR was tested by generating a **complete 10.0-second SaaS motion graphics p
 * **2.8s – 6.0s**: High-frequency digital UI blips (880Hz & 1760Hz) synchronized to typing and metric ticks.
 * **6.0s – 8.4s**: Sweeping stereo white-noise whooshes on feature transitions.
 * **8.4s – 10.0s**: Low-end cinematic impact paired with a multi-harmonic C6-G6-C7 crystal chime decay.
+
+---
+
+## 🚀 Key Subsystems & Highlights
+
+- 🎬 **True Optical Flow Frame Synthesis (MCI)**: Synthesizes genuine non-static intermediate motion vectors to **60.0 FPS** using bidirectional EPZS estimation and AOBMC smoothing with scene-cut detection (`--scd 10.0`).
+- 🎯 **Motion Tracking & 3D HUD Callouts**: Real-time bounding box tracking, cyber HUD telemetry pinning, and camera lock-on / face stabilization.
+- ✂️ **Subject Rotoscoping & 3D Typography**: Dynamic matte extraction allowing large 3D typography and neon energy contours to be composited **behind** moving vehicles and subjects.
+- 📈 **Bézier Speed Graphs & Camera Zoom Curves**: Continuous $C^1/C^2$ easing profiles (`ease_out_expo`, `punch_zoom_pulse`, `flash_impact_ramp`) with instant ASCII terminal visualizers.
+- 🎵 **Phonk Audio-Visual Beat Sync Studio**: Multi-band spectral energy transient detection, cutting video to beat drops with dynamic speed ramps, screen shake, chromatic aberration, and glow flashes.
+- 💻 **Programmatic Generative SaaS Motion Graphics**: Renders dark-mode glassmorphism UI dashboards, live undulating metric charts, typing CLI prompts, and synthesized stereo DSP audio from 100% pure code.
+- 📦 **VFX Studio Exporters**: Solves 3D camera tracking data and outputs native scripts for **Blender** (`.py`), **Foundry Nuke** (`.nk`), and **Adobe After Effects** (`.jsx`).
+- ⚡ **Zero External Heavy Dependencies**: Runs 100% on the Python 3 standard library and system `ffmpeg`/`ffprobe`. Fully optimized for ARM64 Snapdragon NEON and x86_64 architectures.
 
 ---
 

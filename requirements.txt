@@ -1,2 +1,44 @@
-# Zero external Python dependencies required!
-# AIDITOR runs natively on Python 3 standard library + system ffmpeg & ffprobe.
+# ==============================================================================
+# AIDITOR: Autonomous AI Video Editing & Motion VFX Core
+# ==============================================================================
+#
+# SYSTEM PREREQUISITES (Must be installed on the host OS):
+# ------------------------------------------------------------------------------
+# 1. Python 3.8+ (Python 3.9, 3.10, 3.11, 3.12, 3.13)
+# 2. FFmpeg & FFprobe (7.x or 6.x recommended) with:
+#    - libx264 (H.264 video encoding)
+#    - librsvg (Vector SVG rendering for generative motion graphics)
+#    - libfreetype / libfontconfig (Text rendering & typography)
+#
+# OS-SPECIFIC SYSTEM INSTALLATION COMMANDS:
+# ------------------------------------------------------------------------------
+# • Termux (Android):
+#     pkg update && pkg install -y python ffmpeg librsvg git
+#
+# • Debian / Ubuntu / Mint:
+#     sudo apt update && sudo apt install -y python3 python3-pip ffmpeg librsvg2-bin git
+#
+# • macOS (Homebrew):
+#     brew install python ffmpeg librsvg git
+#
+# • Arch Linux:
+#     sudo pacman -S python python-pip ffmpeg librsvg git
+#
+# • Fedora / RHEL:
+#     sudo dnf install -y python3 python3-pip ffmpeg ffmpeg-free-devel librsvg2-tools git
+#
+# • Windows (PowerShell / Winget / Chocolatey):
+#     winget install Python.Python.3.12 Gyan.FFmpeg
+# ==============================================================================
+
+# Core Numerical & Vector Processing
+numpy>=1.20.0
+
+# Optional: Enhanced Image & Frame Processing (PPM/PNG conversion fallback)
+Pillow>=10.0.0
+
+# Optional: Advanced DSP & Spectral Audio Analysis
+scipy>=1.9.0
+
+# Terminal Formatting & Progress Aesthetics
+colorama>=0.4.6

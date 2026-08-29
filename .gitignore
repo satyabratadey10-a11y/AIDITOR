@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+*.tmp
+*.axproj
+saas_frames/
+.system_generated/
+build/
+dist/
+*.egg-info/

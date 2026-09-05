@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -45,8 +44,6 @@ fun BwIconButton(
                 if (borderColor != null) Modifier.border(1.dp, borderColor, CircleShape) else Modifier
             )
             .clickable(
-                interactionSource = interactionSource,
-                indication = ripple(bounded = true, radius = size / 2),
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center

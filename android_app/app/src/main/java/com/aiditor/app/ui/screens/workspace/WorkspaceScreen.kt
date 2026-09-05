@@ -2,8 +2,11 @@ package com.aiditor.app.ui.screens.workspace
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aiditor.app.data.model.Project
@@ -15,10 +18,10 @@ import com.aiditor.app.ui.theme.BwBlack
 /**
  * Screen 2: Video Editing Workspace.
  * Layout:
- * - TopBar: Video Export button, Back to main menu, Title, Undo/Redo
- * - Center-to-upper: Video Preview Screen with HUD overlay
+ * - TopBar: Video Export button, Back to main menu, Title, Undo/Redo (statusBarsPadding)
+ * - Center-to-upper: Video Preview Screen with HUD overlay and gallery video playback
  * - Center-to-bottom: Interactive Multi-track Timeline Scrubber
- * - Bottom side: Feature/Tool list as in bottom bar (6 core tools)
+ * - Bottom side: Feature/Tool list as in bottom bar (6 core tools) (navigationBarsPadding)
  * - Docked Tool Inspector: Complete access to modify input, middle, output with Real Visualizer!
  */
 @Composable
@@ -48,7 +51,12 @@ fun WorkspaceScreen(
             )
         },
         bottomBar = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(BwBlack)
+                    .navigationBarsPadding()
+            ) {
                 // If a tool is active, display the Tool Inspector with Real Visualizer
                 if (uiState.activeTool != null) {
                     ToolInspectorSheet(
@@ -62,7 +70,7 @@ fun WorkspaceScreen(
                         onUpdateOutput = { viewModel.updateOutputParams(it) },
                         onClose = { viewModel.closeToolInspector() },
                         onApplyToTimeline = { viewModel.closeToolInspector() },
-                        modifier = Modifier.heightIn(max = 380.dp)
+                        modifier = Modifier.heightIn(max = 320.dp)
                     )
                 }
 
@@ -79,22 +87,23 @@ fun WorkspaceScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(BwBlack),
-            verticalArrangement = Arrangement.SpaceBetween
+                .background(BwBlack)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 1. CENTER-TO-UPPER: Preview Screen
+            // 1. CENTER-TO-UPPER: Video Preview Screen
             VideoPreviewSection(
+                videoPath = uiState.project?.videoPath,
                 currentTimeSeconds = uiState.currentTimeSeconds,
                 totalDurationSeconds = uiState.totalDurationSeconds,
                 isPlaying = uiState.isPlaying,
                 onPlayPauseToggle = { viewModel.togglePlayPause() },
                 onStepBack = { viewModel.stepFrame(-1.0 / 30.0) },
                 onStepForward = { viewModel.stepFrame(1.0 / 30.0) },
-                activeTool = uiState.activeTool,
-                modifier = Modifier.weight(1f, fill = false)
+                activeTool = uiState.activeTool
             )
-
-            Spacer(modifier = Modifier.height(6.dp))
 
             // 2. CENTER-TO-BOTTOM: Timeline Scrubber
             TimelineSection(
@@ -104,7 +113,7 @@ fun WorkspaceScreen(
                 onSeek = { viewModel.seekTo(it) },
                 onSplit = { viewModel.splitClipAtPlayhead() },
                 onTrim = { viewModel.trimClip() },
-                modifier = Modifier.padding(bottom = 12.dp)
+                modifier = Modifier.padding(bottom = 6.dp)
             )
         }
 

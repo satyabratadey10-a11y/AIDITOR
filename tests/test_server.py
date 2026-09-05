@@ -24,22 +24,25 @@ class TestAiditorBackend(unittest.TestCase):
         self.pm = ProjectManager(storage_dir=self.temp_dir)
 
     def test_project_manager_crud(self):
-        # List initial sample projects
+        # Initial projects list should be empty (zero placeholder projects)
         projects = self.pm.list_projects()
-        self.assertGreaterEqual(len(projects), 3)
-
-        # Check fields required by Screen 1 (Main Menu)
-        first = projects[0]
-        self.assertIn("name", first)
-        self.assertIn("thumbnail_path", first)
-        self.assertIn("file_size_formatted", first)
-        self.assertIn("created_at", first)
-        self.assertIn("modified_at", first)
+        self.assertEqual(len(projects), 0)
 
         # Create new project
         new_proj = self.pm.create_project(name="Test Cinematic 4K")
         self.assertEqual(new_proj["name"], "Test Cinematic 4K")
         self.assertTrue(new_proj["file_size_formatted"].endswith("MB"))
+
+        # Check fields required by Screen 1 (Main Menu)
+        self.assertIn("name", new_proj)
+        self.assertIn("thumbnail_path", new_proj)
+        self.assertIn("file_size_formatted", new_proj)
+        self.assertIn("created_at", new_proj)
+        self.assertIn("modified_at", new_proj)
+
+        # List should now contain the new project
+        projects = self.pm.list_projects()
+        self.assertEqual(len(projects), 1)
 
         # Get project
         retrieved = self.pm.get_project(new_proj["id"])

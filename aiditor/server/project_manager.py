@@ -34,81 +34,9 @@ class ProjectManager:
         self._ensure_sample_projects()
 
     def _ensure_sample_projects(self):
-        """Populates realistic initial projects so the Main Menu Screen has sample data immediately."""
+        """Ensures projects database file exists without placeholder projects."""
         if not os.path.exists(self.db_path) or os.path.getsize(self.db_path) == 0:
-            sample_projects = [
-                {
-                    "id": "proj_tokyo_drift_01",
-                    "name": "Tokyo Midnight Drift",
-                    "video_path": os.path.join(self.storage_dir, "tokyo_drift.mp4"),
-                    "thumbnail_path": os.path.join(self.thumbnails_dir, "proj_tokyo_drift_01.jpg"),
-                    "file_size_bytes": 104857600,  # 100 MB
-                    "file_size_formatted": "100.0 MB",
-                    "duration_seconds": 32.5,
-                    "width": 1080,
-                    "height": 1920,
-                    "fps": 60.0,
-                    "created_at": "2026-08-28 14:22:00",
-                    "modified_at": "2026-09-04 18:45:12",
-                    "applied_tools": [
-                        {"type": "optical_flow", "target_fps": 60, "mode": "mci"},
-                        {"type": "beat_sync", "vibe": "aggressive_drift"}
-                    ],
-                    "timeline_markers": [
-                        {"time": 4.2, "label": "Beat Drop 1"},
-                        {"time": 12.8, "label": "Speed Ramp"},
-                        {"time": 24.0, "label": "HUD Callout"}
-                    ]
-                },
-                {
-                    "id": "proj_cyber_speed_02",
-                    "name": "Cyberpunk Neon Track",
-                    "video_path": os.path.join(self.storage_dir, "cyber_track.mp4"),
-                    "thumbnail_path": os.path.join(self.thumbnails_dir, "proj_cyber_speed_02.jpg"),
-                    "file_size_bytes": 48234496,  # 46.0 MB
-                    "file_size_formatted": "46.0 MB",
-                    "duration_seconds": 15.0,
-                    "width": 1920,
-                    "height": 1080,
-                    "fps": 60.0,
-                    "created_at": "2026-09-01 09:15:30",
-                    "modified_at": "2026-09-05 06:10:04",
-                    "applied_tools": [
-                        {"type": "motion_tracking", "title": "CYBER_LOCKED"},
-                        {"type": "color_grade", "preset": "monochrome_cinema"}
-                    ],
-                    "timeline_markers": [
-                        {"time": 2.5, "label": "Lock On"},
-                        {"time": 8.0, "label": "Neon Outline"}
-                    ]
-                },
-                {
-                    "id": "proj_roto_saber_03",
-                    "name": "Stealth Rotoscope Cut",
-                    "video_path": os.path.join(self.storage_dir, "stealth_roto.mp4"),
-                    "thumbnail_path": os.path.join(self.thumbnails_dir, "proj_roto_saber_03.jpg"),
-                    "file_size_bytes": 73400320,  # 70.0 MB
-                    "file_size_formatted": "70.0 MB",
-                    "duration_seconds": 22.0,
-                    "width": 1920,
-                    "height": 1080,
-                    "fps": 30.0,
-                    "created_at": "2026-09-03 11:00:00",
-                    "modified_at": "2026-09-05 07:30:20",
-                    "applied_tools": [
-                        {"type": "rotoscope", "text": "AIDITOR CORE"},
-                        {"type": "speed_ramp", "preset": "flash_impact_ramp"}
-                    ],
-                    "timeline_markers": [
-                        {"time": 5.0, "label": "Behind Text"}
-                    ]
-                }
-            ]
-            self._save_projects(sample_projects)
-
-            # Generate placeholder thumbnail images if not present
-            for proj in sample_projects:
-                self._generate_placeholder_thumbnail(proj["thumbnail_path"], proj["name"])
+            self._save_projects([])
 
     def _generate_placeholder_thumbnail(self, path: str, title: str):
         """Creates a minimal valid JPEG placeholder thumbnail instantaneously."""

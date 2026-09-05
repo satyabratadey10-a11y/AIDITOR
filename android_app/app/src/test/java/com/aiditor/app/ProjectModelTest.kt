@@ -11,17 +11,32 @@ import org.junit.Test
 class ProjectModelTest {
 
     @Test
-    fun testDefaultProjectsContainRequiredFields() {
+    fun testDefaultProjectsListIsEmpty() {
         val projects = ProjectRepository.getDefaultProjects()
-        assertTrue("Projects list should not be empty", projects.isNotEmpty())
+        assertTrue("Projects list should be empty by default with zero placeholder projects", projects.isEmpty())
+    }
 
-        val first = projects.first()
-        assertNotNull(first.id)
-        assertNotNull(first.name)
-        assertNotNull(first.fileSizeFormatted)
-        assertTrue(first.fileSizeFormatted.contains("MB"))
-        assertNotNull(first.createdAt)
-        assertNotNull(first.modifiedAt)
+    @Test
+    fun testProjectCreationWithRealMetadata() = runBlocking {
+        val repo = ProjectRepository()
+        val created = repo.createProject(
+            name = "Test Real Project",
+            videoPath = "content://media/external/video/media/123",
+            fileSizeBytes = 52428800L,
+            fileSizeFormatted = "50.0 MB",
+            durationSeconds = 18.5,
+            width = 1920,
+            height = 1080
+        )
+        assertNotNull(created.id)
+        assertEquals("Test Real Project", created.name)
+        assertEquals("50.0 MB", created.fileSizeFormatted)
+        assertEquals(18.5, created.durationSeconds, 0.01)
+        assertEquals(1920, created.width)
+        assertEquals(1080, created.height)
+        assertNotNull(created.createdAt)
+        assertNotNull(created.modifiedAt)
+        assertTrue(repo.projects.value.isNotEmpty())
     }
 
     @Test

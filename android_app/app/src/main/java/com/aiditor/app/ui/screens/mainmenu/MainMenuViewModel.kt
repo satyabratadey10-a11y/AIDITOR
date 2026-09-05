@@ -44,9 +44,26 @@ class MainMenuViewModel(
         _uiState.value = _uiState.value.copy(showCreateDialog = show)
     }
 
-    fun createProject(name: String, videoPath: String, onCreated: (Project) -> Unit) {
+    fun createProject(
+        name: String,
+        videoPath: String,
+        fileSizeBytes: Long = 0L,
+        fileSizeFormatted: String = "",
+        durationSeconds: Double = 10.0,
+        width: Int = 1920,
+        height: Int = 1080,
+        onCreated: (Project) -> Unit
+    ) {
         viewModelScope.launch {
-            val newProj = repository.createProject(name, videoPath)
+            val newProj = repository.createProject(
+                name = name,
+                videoPath = videoPath,
+                fileSizeBytes = fileSizeBytes,
+                fileSizeFormatted = fileSizeFormatted,
+                durationSeconds = durationSeconds,
+                width = width,
+                height = height
+            )
             showCreateDialog(false)
             onCreated(newProj)
         }

@@ -1,13 +1,13 @@
 package com.aiditor.app.data.repository
 
 import com.aiditor.app.bridge.BackendApiClient
-import com.aiditor.app.data.model.AppliedTool
 import com.aiditor.app.data.model.Project
-import com.aiditor.app.data.model.TimelineMarker
-import com.aiditor.app.data.model.ToolType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ProjectRepository(
     private val apiClient: BackendApiClient = BackendApiClient()
@@ -22,29 +22,40 @@ class ProjectRepository(
         }
     }
 
-    suspend fun createProject(name: String, videoPath: String = ""): Project {
+    suspend fun createProject(
+        name: String,
+        videoPath: String = "",
+        fileSizeBytes: Long = 0L,
+        fileSizeFormatted: String = "",
+        durationSeconds: Double = 10.0,
+        width: Int = 1920,
+        height: Int = 1080
+    ): Project {
         val remote = apiClient.createProject(name, videoPath)
+        val now = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+        val formattedSize = if (fileSizeFormatted.isNotEmpty()) {
+            fileSizeFormatted
+        } else if (fileSizeBytes > 0) {
+            String.format(Locale.US, "%.1f MB", fileSizeBytes / (1024.0 * 1024.0))
+        } else {
+            "0.0 MB"
+        }
+
         val newProj = remote ?: Project(
             id = "proj_${System.currentTimeMillis()}",
             name = name,
-            videoPath = videoPath.ifEmpty { "/storage/emulated/0/Movies/raw_cut.mp4" },
+            videoPath = videoPath,
             thumbnailPath = "",
-            fileSizeBytes = 54525952L,
-            fileSizeFormatted = "52.0 MB",
-            durationSeconds = 18.5,
-            width = 1920,
-            height = 1080,
-            fps = 60.0,
-            createdAt = "2026-09-05 08:30:00",
-            modifiedAt = "2026-09-05 08:30:00",
-            appliedTools = listOf(
-                AppliedTool(ToolType.OPTICAL_FLOW, "Optical Flow", "60 FPS (MCI)"),
-                AppliedTool(ToolType.COLOR_GRADE, "Color Grade", "Monochrome Cinema")
-            ),
-            timelineMarkers = listOf(
-                TimelineMarker(3.2, "Intro Cut"),
-                TimelineMarker(8.5, "Beat Drop")
-            )
+            fileSizeBytes = fileSizeBytes,
+            fileSizeFormatted = formattedSize,
+            durationSeconds = durationSeconds,
+            width = width,
+            height = height,
+            fps = 30.0,
+            createdAt = now,
+            modifiedAt = now,
+            appliedTools = emptyList(),
+            timelineMarkers = emptyList()
         )
 
         val current = _projects.value.toMutableList()
@@ -62,73 +73,7 @@ class ProjectRepository(
     }
 
     companion object {
-        fun getDefaultProjects(): List<Project> = listOf(
-            Project(
-                id = "proj_tokyo_drift_01",
-                name = "Tokyo Midnight Drift",
-                videoPath = "/storage/emulated/0/Movies/tokyo_drift.mp4",
-                thumbnailPath = "",
-                fileSizeBytes = 104857600L,
-                fileSizeFormatted = "100.0 MB",
-                durationSeconds = 32.5,
-                width = 1080,
-                height = 1920,
-                fps = 60.0,
-                createdAt = "2026-08-28 14:22:00",
-                modifiedAt = "2026-09-04 18:45:12",
-                appliedTools = listOf(
-                    AppliedTool(ToolType.OPTICAL_FLOW, "Optical Flow", "60 FPS (MCI)"),
-                    AppliedTool(ToolType.BEAT_SYNC, "Beat Sync", "Aggressive Drift")
-                ),
-                timelineMarkers = listOf(
-                    TimelineMarker(4.2, "Beat Drop 1"),
-                    TimelineMarker(12.8, "Speed Ramp"),
-                    TimelineMarker(24.0, "HUD Callout")
-                )
-            ),
-            Project(
-                id = "proj_cyber_speed_02",
-                name = "Cyberpunk Neon Track",
-                videoPath = "/storage/emulated/0/Movies/cyber_track.mp4",
-                thumbnailPath = "",
-                fileSizeBytes = 48234496L,
-                fileSizeFormatted = "46.0 MB",
-                durationSeconds = 15.0,
-                width = 1920,
-                height = 1080,
-                fps = 60.0,
-                createdAt = "2026-09-01 09:15:30",
-                modifiedAt = "2026-09-05 06:10:04",
-                appliedTools = listOf(
-                    AppliedTool(ToolType.MOTION_TRACKING, "Motion Track", "Target Locked"),
-                    AppliedTool(ToolType.COLOR_GRADE, "Color Grade", "Monochrome")
-                ),
-                timelineMarkers = listOf(
-                    TimelineMarker(2.5, "Lock On"),
-                    TimelineMarker(8.0, "Neon Outline")
-                )
-            ),
-            Project(
-                id = "proj_roto_saber_03",
-                name = "Stealth Rotoscope Cut",
-                videoPath = "/storage/emulated/0/Movies/stealth_roto.mp4",
-                thumbnailPath = "",
-                fileSizeBytes = 73400320L,
-                fileSizeFormatted = "70.0 MB",
-                durationSeconds = 22.0,
-                width = 1920,
-                height = 1080,
-                fps = 30.0,
-                createdAt = "2026-09-03 11:00:00",
-                modifiedAt = "2026-09-05 07:30:20",
-                appliedTools = listOf(
-                    AppliedTool(ToolType.ROTOSCOPE, "Rotoscope", "AIDITOR CORE"),
-                    AppliedTool(ToolType.SPEED_RAMP, "Speed Ramp", "Flash Impact")
-                ),
-                timelineMarkers = listOf(
-                    TimelineMarker(5.0, "Behind Text")
-                )
-            )
-        )
+        // No placeholder projects by default - starts with clean empty state
+        fun getDefaultProjects(): List<Project> = emptyList()
     }
 }

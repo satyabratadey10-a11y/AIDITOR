@@ -10,47 +10,164 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.aiditor.app.R
 import com.aiditor.app.data.model.ExportJob
 import com.aiditor.app.data.model.ExportSettings
 import com.aiditor.app.data.model.ExportStatus
 import com.aiditor.app.ui.theme.*
+import com.aiditor.app.util.PickedVideoDetails
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateProjectDialog(
+    initialVideo: PickedVideoDetails?,
+    onBrowseGallery: () -> Unit,
     onDismiss: () -> Unit,
-    onCreate: (name: String, path: String) -> Unit
+    onCreate: (name: String, path: String, sizeBytes: Long, sizeFormatted: String, duration: Double, width: Int, height: Int) -> Unit
 ) {
-    var projectName by remember { mutableStateOf("New AI Video Cut") }
-    var videoSource by remember { mutableStateOf("sample_tokyo.mp4") }
+    var projectName by remember(initialVideo) {
+        mutableStateOf(
+            initialVideo?.displayName?.substringBeforeLast(".") ?: "New Project"
+        )
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = BwDarkSurface),
             border = androidx.compose.foundation.BorderStroke(1.dp, BwCardStroke),
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
         ) {
             Column(
-                modifier = Modifier.padding(24.dp)
+                modifier = Modifier.padding(22.dp)
             ) {
-                Text(
-                    text = "CREATE PROJECT",
-                    color = BwWhite,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "NEW PROJECT",
+                        color = BwWhite,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    BwIconButton(
+                        iconRes = R.drawable.ic_close,
+                        onClick = onDismiss,
+                        contentDescription = "Close",
+                        size = 30.dp,
+                        iconSize = 16.dp
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Gallery Video Selection Card
                 Text(
-                    text = "Project Title",
+                    text = "GALLERY VIDEO",
                     color = BwGreyLight,
-                    fontSize = 12.sp
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (initialVideo != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(BwCardBackground)
+                            .border(1.dp, BwCardStroke, RoundedCornerShape(12.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    painter = painterResource(id = R.drawable.ic_video_placeholder),
+                                    contentDescription = null,
+                                    tint = BwWhite,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = initialVideo.displayName,
+                                    color = BwWhite,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "${initialVideo.sizeFormatted} • ${String.format(Locale.US, "%.1fs", initialVideo.durationSeconds)} • ${initialVideo.width}x${initialVideo.height}",
+                                color = BwGreyLight,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            BwButton(
+                                text = "CHANGE VIDEO",
+                                iconRes = R.drawable.ic_video_placeholder,
+                                onClick = onBrowseGallery,
+                                modifier = Modifier.fillMaxWidth().height(38.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(BwCardBackground)
+                            .border(1.dp, BwCardStroke, RoundedCornerShape(12.dp))
+                            .clickable { onBrowseGallery() }
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_video_placeholder),
+                                contentDescription = null,
+                                tint = BwWhite,
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "TAP TO SELECT VIDEO FROM GALLERY",
+                                color = BwWhite,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Project Title input
+                Text(
+                    text = "PROJECT TITLE",
+                    color = BwGreyLight,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 OutlinedTextField(
@@ -66,54 +183,33 @@ fun CreateProjectDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Video Source Clip",
-                    color = BwGreyLight,
-                    fontSize = 12.sp
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                val sampleSources = listOf("sample_tokyo.mp4", "cyber_neon.mp4", "stealth_track.mp4")
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    sampleSources.forEach { src ->
-                        val isSelected = videoSource == src
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) BwWhite else BwCardBackground)
-                                .border(1.dp, if (isSelected) BwWhite else BwCardStroke, RoundedCornerShape(8.dp))
-                                .clickable { videoSource = src }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = src.substringBefore("."),
-                                color = if (isSelected) BwBlack else BwWhite,
-                                fontSize = 10.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
+                Spacer(modifier = Modifier.height(22.dp))
 
-                Spacer(modifier = Modifier.height(24.dp))
+                // Bottom actions
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     TextButton(onClick = onDismiss) {
                         Text("CANCEL", color = BwGreyLight, fontWeight = FontWeight.SemiBold)
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     BwButton(
-                        text = "CREATE",
+                        text = "CREATE PROJECT",
+                        iconRes = R.drawable.ic_check,
+                        enabled = projectName.isNotBlank() && initialVideo != null,
                         onClick = {
-                            if (projectName.isNotBlank()) {
-                                onCreate(projectName, videoSource)
+                            if (projectName.isNotBlank() && initialVideo != null) {
+                                onCreate(
+                                    projectName,
+                                    initialVideo.uri.toString(),
+                                    initialVideo.sizeBytes,
+                                    initialVideo.sizeFormatted,
+                                    initialVideo.durationSeconds,
+                                    initialVideo.width,
+                                    initialVideo.height
+                                )
                             }
                         }
                     )

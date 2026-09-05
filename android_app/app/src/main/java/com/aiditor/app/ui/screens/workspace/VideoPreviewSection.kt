@@ -1,5 +1,8 @@
 package com.aiditor.app.ui.screens.workspace
 
+import android.net.Uri
+import android.view.ViewGroup
+import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -9,7 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -17,20 +20,31 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.aiditor.app.R
 import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.components.BwIconButton
 import com.aiditor.app.ui.theme.*
+import java.io.File
+import java.util.Locale
 
 /**
  * Preview Screen at Center to Upper side of the Workspace.
  * Conforms to: "preview screen at center to upper side"
+ * Plays actual video picked from phone gallery via ExoPlayer with fallback to HUD canvas.
  */
+@OptIn(UnstableApi::class)
 @Composable
 fun VideoPreviewSection(
     currentTimeSeconds: Double,
@@ -40,15 +54,62 @@ fun VideoPreviewSection(
     onStepBack: () -> Unit,
     onStepForward: () -> Unit,
     activeTool: ToolType?,
+    videoPath: String? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+
+    DisposableEffect(videoPath) {
+        if (!videoPath.isNullOrBlank()) {
+            try {
+                val player = ExoPlayer.Builder(context).build().apply {
+                    val uri = if (videoPath.startsWith("content://") || videoPath.startsWith("file://") || videoPath.startsWith("http://") || videoPath.startsWith("https://")) {
+                        Uri.parse(videoPath)
+                    } else {
+                        Uri.fromFile(File(videoPath))
+                    }
+                    setMediaItem(MediaItem.fromUri(uri))
+                    repeatMode = Player.REPEAT_MODE_ALL
+                    prepare()
+                }
+                exoPlayer = player
+            } catch (_: Exception) {
+                exoPlayer = null
+            }
+        }
+        onDispose {
+            exoPlayer?.release()
+            exoPlayer = null
+        }
+    }
+
+    LaunchedEffect(isPlaying, exoPlayer) {
+        exoPlayer?.let { player ->
+            if (isPlaying && !player.isPlaying) {
+                player.play()
+            } else if (!isPlaying && player.isPlaying) {
+                player.pause()
+            }
+        }
+    }
+
+    LaunchedEffect(currentTimeSeconds) {
+        exoPlayer?.let { player ->
+            val targetMs = (currentTimeSeconds * 1000).toLong()
+            if (Math.abs(player.currentPosition - targetMs) > 250) {
+                player.seekTo(targetMs)
+            }
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp),
+            .padding(horizontal = 4.dp, vertical = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Video Preview Canvas Container
+        // Video Preview Container (16:9)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -59,24 +120,45 @@ fun VideoPreviewSection(
                 .clickable { onPlayPauseToggle() },
             contentAlignment = Alignment.Center
         ) {
-            // Simulated video content canvas with HUD / active tool overlay
+            if (exoPlayer != null) {
+                AndroidView(
+                    factory = { ctx ->
+                        PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // Simulated video canvas fallback
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val w = size.width
+                    val h = size.height
+
+                    // Dark gradient background
+                    drawRect(Color(0xFF0A0A0A))
+
+                    // Safe area guidelines
+                    val safeInset = 20f
+                    drawRect(
+                        color = Color(0xFF1E1E1E),
+                        topLeft = Offset(safeInset, safeInset),
+                        size = Size(w - safeInset * 2, h - safeInset * 2),
+                        style = Stroke(width = 1f)
+                    )
+                }
+            }
+
+            // Real-time Tool Visualizer Overlay (drawn on top of real or simulated video!)
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
 
-                // Vignette dark gradient effect
-                drawRect(Color(0xFF0A0A0A))
-
-                // Aspect ratio / safe area guidelines
-                val safeInset = 20f
-                drawRect(
-                    color = Color(0xFF1E1E1E),
-                    topLeft = Offset(safeInset, safeInset),
-                    size = Size(w - safeInset * 2, h - safeInset * 2),
-                    style = Stroke(width = 1f)
-                )
-
-                // Overlay active tool visualizer on top of preview screen!
                 when (activeTool) {
                     ToolType.MOTION_TRACKING -> {
                         // Cyberpunk target reticle
@@ -172,7 +254,7 @@ fun VideoPreviewSection(
             // Step & Playback Buttons
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 BwIconButton(
                     iconRes = R.drawable.ic_step_back,
@@ -203,9 +285,9 @@ fun VideoPreviewSection(
 }
 
 private fun formatTimecode(seconds: Double): String {
-    val totalSecs = seconds.toInt()
+    val totalSecs = seconds.coerceAtLeast(0.0).toInt()
     val mins = totalSecs / 60
     val secs = totalSecs % 60
-    val millis = ((seconds - totalSecs) * 100).toInt()
-    return String.format("%02d:%02d.%02d", mins, secs, millis)
+    val millis = ((seconds.coerceAtLeast(0.0) - totalSecs) * 100).toInt().coerceIn(0, 99)
+    return String.format(Locale.US, "%02d:%02d.%02d", mins, secs, millis)
 }

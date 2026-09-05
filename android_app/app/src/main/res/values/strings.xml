@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AIDITOR</string>
+    <string name="app_subtitle">Autonomous AI Video Studio</string>
+    
+    <!-- Screen 1: Main Menu -->
+    <string name="main_menu_title">PROJECTS</string>
+    <string name="create_new_project">New Project</string>
+    <string name="no_projects_yet">No projects yet. Tap + to start editing.</string>
+    <string name="created_label">Created</string>
+    <string name="modified_label">Modified</string>
+    <string name="size_label">Size</string>
+    
+    <!-- Screen 2: Workspace -->
+    <string name="workspace_title">WORKSPACE</string>
+    <string name="export_button">EXPORT</string>
+    <string name="exporting">Exporting...</string>
+    <string name="timeline">Timeline</string>
+    
+    <!-- Tools -->
+    <string name="tool_optical_flow">Optical Flow</string>
+    <string name="tool_beat_sync">Beat Sync</string>
+    <string name="tool_motion_tracking">Motion Track</string>
+    <string name="tool_color_grade">Color Grade</string>
+    <string name="tool_speed_ramp">Speed Ramp</string>
+    <string name="tool_rotoscope">Rotoscope</string>
+    
+    <!-- Actions -->
+    <string name="action_apply">Apply</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_preview">Preview</string>
+    <string name="action_split">Split</string>
+    <string name="action_trim">Trim</string>
+</resources>

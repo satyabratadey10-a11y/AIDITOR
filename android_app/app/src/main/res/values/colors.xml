@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Strict Minimalist Monochrome Black & White Palette -->
+    <color name="bw_black">#000000</color>
+    <color name="bw_white">#FFFFFF</color>
+    <color name="bw_surface_dark">#121212</color>
+    <color name="bw_card_dark">#181818</color>
+    <color name="bw_card_stroke">#2A2A2A</color>
+    <color name="bw_mid_grey">#666666</color>
+    <color name="bw_light_grey">#9E9E9E</color>
+    <color name="bw_off_white">#E0E0E0</color>
+    <color name="bw_button_white">#FFFFFF</color>
+    <color name="bw_button_content_black">#000000</color>
+</resources>

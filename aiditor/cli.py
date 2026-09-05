@@ -252,6 +252,61 @@ def cmd_export(args):
             print(f"  • {fmt.upper()}: {path}")
 
 
+def cmd_server(args):
+    """Starts the AIDITOR HTTP REST API Server for Android and client apps."""
+    from .server.api_server import start_server
+    server = start_server(port=args.port, host=args.host)
+    print(f"⚡ Server running on http://{args.host}:{args.port}. Press Ctrl+C to stop.")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping server...")
+        server.server_close()
+
+
+def cmd_visualize(args):
+    """Generates real-time visualizer data for any tool."""
+    from .server.visualizer import VisualizerEngine
+    res = {}
+    if args.tool == "optical_flow":
+        res = VisualizerEngine.generate_optical_flow_visualization(
+            video_path=args.video or "dummy.mp4",
+            target_fps=args.fps,
+            mode=args.mode
+        )
+    elif args.tool == "beat_sync":
+        res = VisualizerEngine.generate_beat_sync_visualization(
+            audio_or_video_path=args.video or "dummy.mp4",
+            duration=args.duration,
+            vibe=args.vibe
+        )
+    elif args.tool == "motion_tracking":
+        res = VisualizerEngine.generate_motion_tracking_visualization(
+            video_path=args.video or "dummy.mp4",
+            target_x=args.target_x,
+            target_y=args.target_y
+        )
+    elif args.tool == "speed_ramp":
+        res = VisualizerEngine.generate_speed_ramp_visualization(
+            preset=args.preset,
+            duration=args.duration
+        )
+    elif args.tool == "color_grade":
+        res = VisualizerEngine.generate_color_grade_visualization(
+            contrast=args.contrast,
+            exposure=args.exposure,
+            saturation=args.saturation
+        )
+    elif args.tool == "rotoscope":
+        res = VisualizerEngine.generate_rotoscope_visualization(
+            roto_preset=args.roto_preset,
+            text_content=args.text
+        )
+
+    print(json.dumps(res, indent=2))
+
+
+
 def main():
     common_parser = argparse.ArgumentParser(add_help=False)
     common_parser.add_argument("--json", action="store_true", dest="json_output", help="Output machine-readable JSON")
@@ -336,6 +391,28 @@ def main():
     p_export.add_argument("--focal-length", type=float, default=35.0)
     p_export.add_argument("--output", help="Base output filename")
 
+    # Command: server
+    p_server = subparsers.add_parser("server", parents=[common_parser], help="Start AIDITOR REST API server")
+    p_server.add_argument("--port", type=int, default=8080, help="HTTP server port")
+    p_server.add_argument("--host", default="0.0.0.0", help="HTTP server host")
+
+    # Command: visualize
+    p_visualize = subparsers.add_parser("visualize", parents=[common_parser], help="Generate real visualizer data for any tool")
+    p_visualize.add_argument("--tool", required=True, choices=["optical_flow", "beat_sync", "motion_tracking", "speed_ramp", "color_grade", "rotoscope"])
+    p_visualize.add_argument("--video", default="dummy.mp4")
+    p_visualize.add_argument("--fps", type=int, default=60)
+    p_visualize.add_argument("--mode", default="mci")
+    p_visualize.add_argument("--duration", type=float, default=10.0)
+    p_visualize.add_argument("--vibe", default="aggressive_drift")
+    p_visualize.add_argument("--target-x", type=float, default=0.5)
+    p_visualize.add_argument("--target-y", type=float, default=0.5)
+    p_visualize.add_argument("--preset", default="flash_impact_ramp")
+    p_visualize.add_argument("--contrast", type=float, default=1.2)
+    p_visualize.add_argument("--exposure", type=float, default=0.0)
+    p_visualize.add_argument("--saturation", type=float, default=0.0)
+    p_visualize.add_argument("--roto-preset", default="behind_text")
+    p_visualize.add_argument("--text", default="AIDITOR")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -357,6 +434,8 @@ def main():
         "speed-ramp": cmd_speed_ramp,
         "phonk": cmd_phonk,
         "export": cmd_export,
+        "server": cmd_server,
+        "visualize": cmd_visualize,
     }
 
     if args.command in cmd_map:

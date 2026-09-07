@@ -64,8 +64,17 @@ fun AiditorNavGraph(
             }
         ) { backStackEntry ->
             val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-            val project = selectedProject ?: ProjectRepository.getDefaultProjects().find { it.id == projectId }
-                ?: ProjectRepository.getDefaultProjects().first()
+            val project = selectedProject ?: Project(
+                id = projectId.ifEmpty { "proj_new" },
+                name = "Video Project",
+                videoPath = "",
+                fileSizeBytes = 0L,
+                fileSizeFormatted = "0.0 MB",
+                durationSeconds = 10.0,
+                width = 1920,
+                height = 1080,
+                fps = 30.0
+            )
 
             WorkspaceScreen(
                 project = project,

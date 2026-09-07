@@ -19,6 +19,8 @@
         android:roundIcon="@drawable/ic_optical_flow"
         android:supportsRtl="true"
         android:theme="@style/Theme.Aiditor"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true"
         android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"

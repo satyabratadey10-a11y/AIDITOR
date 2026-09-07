@@ -11,3 +11,10 @@ saas_frames/
 build/
 dist/
 *.egg-info/
+build_output/
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+projects_data/thumbnails/

@@ -1,28 +1,36 @@
 package com.aiditor.app.ui.screens.workspace
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.aiditor.app.data.model.ActiveTrackingMode
+import com.aiditor.app.data.model.OverlayType
 import com.aiditor.app.data.model.Project
+import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.components.BwTopBar
 import com.aiditor.app.ui.components.ExportDialog
 import com.aiditor.app.ui.components.ExportProgressDialog
 import com.aiditor.app.ui.theme.BwBlack
+import com.aiditor.app.util.VideoPickerHelper
 
 /**
  * Screen 2: Video Editing Workspace.
- * Layout:
- * - TopBar: Video Export button, Back to main menu, Title, Undo/Redo (statusBarsPadding)
- * - Center-to-upper: Video Preview Screen with HUD overlay and gallery video playback
- * - Center-to-bottom: Interactive Multi-track Timeline Scrubber
- * - Bottom side: Feature/Tool list as in bottom bar (6 core tools) (navigationBarsPadding)
- * - Docked Tool Inspector: Complete access to modify input, middle, output with Real Visualizer!
+ * 100% Standalone On-Device Video Editor.
+ * Layout strictly matching CapCut / VN reference images:
+ * - TopBar: Back button, Aspect Ratio Dropdown ("Original v" / "1:1 v"), Export icon
+ * - Video Preview: Scaled video with HUD overlays (Motion Tracking, Stabilization, Face Tracking)
+ * - Multi-Track Timeline: Transport bar, dynamic time ruler, left track headers, free multi-tracks, centered playhead
+ * - Bottom Action Toolbar: Exact tools (Split, Delete, Duplicate, Replace, Image, Edit, Tune, Speed, Track, Clear)
+ * - Docked Tool Inspector with real visualizers
  */
 @Composable
 fun WorkspaceScreen(
@@ -31,30 +39,46 @@ fun WorkspaceScreen(
     onBackToMainMenu: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+
     LaunchedEffect(project.id) {
         viewModel.loadProject(project)
     }
 
     val uiState by viewModel.uiState.collectAsState()
 
+    // Replace video launcher
+    val replacePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.replaceSelectedClip(uri.toString())
+        }
+    }
+
+    // Add image/overlay launcher
+    val addImageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        viewModel.addStickerOverlay(OverlayType.SKULL_STICKER)
+    }
+
     Scaffold(
-        containerColor = BwBlack,
+        containerColor = Color(0xFF0F0F11),
         topBar = {
             BwTopBar(
                 title = uiState.project?.name ?: "WORKSPACE",
                 onBackClick = onBackToMainMenu,
                 onExportClick = { viewModel.showExportDialog(true) },
-                onUndoClick = { /* Undo action */ },
-                onRedoClick = { /* Redo action */ },
-                canUndo = uiState.canUndo,
-                canRedo = uiState.canRedo
+                aspectRatio = uiState.aspectRatio,
+                onSelectAspectRatio = { viewModel.setAspectRatio(it) }
             )
         },
         bottomBar = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(BwBlack)
+                    .background(Color(0xFF141416))
                     .navigationBarsPadding()
             ) {
                 // If a tool is active, display the Tool Inspector with Real Visualizer
@@ -70,14 +94,49 @@ fun WorkspaceScreen(
                         onUpdateOutput = { viewModel.updateOutputParams(it) },
                         onClose = { viewModel.closeToolInspector() },
                         onApplyToTimeline = { viewModel.closeToolInspector() },
-                        modifier = Modifier.heightIn(max = 320.dp)
+                        modifier = Modifier.heightIn(max = 300.dp)
                     )
                 }
 
                 // Bottom feature/tool list
                 BottomToolBar(
-                    activeTool = uiState.activeTool,
-                    onSelectTool = { viewModel.selectTool(it) }
+                    onBack = onBackToMainMenu,
+                    onSplit = { viewModel.splitClipAtPlayhead() },
+                    onDelete = { viewModel.deleteSelectedClip() },
+                    onDuplicate = { viewModel.duplicateSelectedClip() },
+                    onReplace = {
+                        try {
+                            replacePickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                            )
+                        } catch (_: Exception) {}
+                    },
+                    onAddImage = {
+                        viewModel.addStickerOverlay(OverlayType.SKULL_STICKER)
+                    },
+                    onEdit = {
+                        viewModel.selectTool(ToolType.OPTICAL_FLOW)
+                    },
+                    onTune = {
+                        viewModel.selectTool(ToolType.COLOR_GRADE)
+                    },
+                    onSpeed = {
+                        viewModel.selectTool(ToolType.SPEED_RAMP)
+                    },
+                    onTrack = {
+                        // Cycles through Motion Tracking -> Stabilization -> Face Tracking -> None
+                        val nextMode = when (uiState.trackingMode) {
+                            ActiveTrackingMode.NONE -> ActiveTrackingMode.MOTION_TRACKING
+                            ActiveTrackingMode.MOTION_TRACKING -> ActiveTrackingMode.MOTION_STABILIZATION
+                            ActiveTrackingMode.MOTION_STABILIZATION -> ActiveTrackingMode.FACE_TRACKING
+                            ActiveTrackingMode.FACE_TRACKING -> ActiveTrackingMode.NONE
+                        }
+                        viewModel.setTrackingMode(nextMode)
+                    },
+                    onClear = {
+                        viewModel.clearActiveTracking()
+                    },
+                    trackingMode = uiState.trackingMode
                 )
             }
         },
@@ -87,33 +146,56 @@ fun WorkspaceScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .background(BwBlack)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 6.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .background(Color(0xFF0D0D0E)),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 1. CENTER-TO-UPPER: Video Preview Screen
-            VideoPreviewSection(
-                videoPath = uiState.project?.videoPath,
-                currentTimeSeconds = uiState.currentTimeSeconds,
-                totalDurationSeconds = uiState.totalDurationSeconds,
-                isPlaying = uiState.isPlaying,
-                onPlayPauseToggle = { viewModel.togglePlayPause() },
-                onStepBack = { viewModel.stepFrame(-1.0 / 30.0) },
-                onStepForward = { viewModel.stepFrame(1.0 / 30.0) },
-                activeTool = uiState.activeTool
-            )
+            // 1. UPPER SECTION: Video Preview Screen with HUD Overlays
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                VideoPreviewSection(
+                    currentTimeSeconds = uiState.currentTimeSeconds,
+                    totalDurationSeconds = uiState.totalDurationSeconds,
+                    isPlaying = uiState.isPlaying,
+                    isAudioMuted = uiState.isAudioMuted,
+                    aspectRatio = uiState.aspectRatio,
+                    trackingMode = uiState.trackingMode,
+                    activeTool = uiState.activeTool,
+                    onPlayPauseToggle = { viewModel.togglePlayPause() },
+                    videoPath = uiState.project?.videoPath
+                )
+            }
 
-            // 2. CENTER-TO-BOTTOM: Timeline Scrubber
+            // 2. CENTER-TO-BOTTOM: Multi-Track Timeline
             TimelineSection(
                 currentTimeSeconds = uiState.currentTimeSeconds,
                 totalDurationSeconds = uiState.totalDurationSeconds,
-                markers = uiState.markers,
+                isPlaying = uiState.isPlaying,
+                clips = uiState.clips,
+                overlays = uiState.overlays,
+                selectedClipId = uiState.selectedClipId,
+                selectedOverlayId = uiState.selectedOverlayId,
+                isAudioMuted = uiState.isAudioMuted,
+                trackingMode = uiState.trackingMode,
+                canUndo = uiState.canUndo,
+                canRedo = uiState.canRedo,
                 onSeek = { viewModel.seekTo(it) },
-                onSplit = { viewModel.splitClipAtPlayhead() },
-                onTrim = { viewModel.trimClip() },
-                modifier = Modifier.padding(bottom = 6.dp)
+                onStepBack = { viewModel.stepFrame(-1.0 / 30.0) },
+                onStepForward = { viewModel.stepFrame(1.0 / 30.0) },
+                onPlayPauseToggle = { viewModel.togglePlayPause() },
+                onUndo = { viewModel.undo() },
+                onRedo = { viewModel.redo() },
+                onToggleAudioMute = { viewModel.toggleAudioMute() },
+                onSelectClip = { viewModel.selectClip(it) },
+                onSelectOverlay = { viewModel.selectOverlay(it) },
+                onStopTracking = { viewModel.stopTracking() },
+                onTrimClipBoundaries = { clipId, newIn, newOut ->
+                    viewModel.trimClipBoundaries(clipId, newIn, newOut)
+                }
             )
         }
 
@@ -127,7 +209,7 @@ fun WorkspaceScreen(
             )
         }
 
-        // Export Progress Dialog
+        // Export Real-Time Progress Bar Dialog
         if (uiState.showExportProgressDialog && uiState.activeExportJob != null) {
             ExportProgressDialog(
                 exportJob = uiState.activeExportJob!!,

@@ -78,9 +78,12 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.json:json:20231013")
 
-    // Media3 / ExoPlayer for Preview
+    // Media3 / ExoPlayer & On-Device Transformer for Preview & Export
     implementation("androidx.media3:media3-exoplayer:1.2.1")
     implementation("androidx.media3:media3-ui:1.2.1")
+    implementation("androidx.media3:media3-transformer:1.2.1")
+    implementation("androidx.media3:media3-effect:1.2.1")
+    implementation("androidx.media3:media3-common:1.2.1")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

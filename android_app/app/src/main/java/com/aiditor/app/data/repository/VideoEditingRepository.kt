@@ -186,13 +186,15 @@ class VideoEditingRepository(
             proc.exportVideoProgress(toolType, input, middle, output, durationSeconds)
         } else {
             flow {
-                emit(ExportJob("job_standalone", toolType.title, ExportStatus.INITIALIZING, 5f, "Starting standalone export..."))
+                val jId = "job_standalone"
+                val start = System.currentTimeMillis()
+                emit(ExportJob(jobId = jId, status = ExportStatus.QUEUED, progressPercentage = 5f, message = "Starting standalone export...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
                 delay(80)
-                emit(ExportJob("job_standalone", toolType.title, ExportStatus.PROCESSING, 35f, "Processing video frames..."))
+                emit(ExportJob(jobId = jId, status = ExportStatus.PROCESSING, progressPercentage = 35f, message = "Processing video frames...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
                 delay(100)
-                emit(ExportJob("job_standalone", toolType.title, ExportStatus.PROCESSING, 75f, "Rendering audio & video..."))
+                emit(ExportJob(jobId = jId, status = ExportStatus.PROCESSING, progressPercentage = 75f, message = "Rendering audio & video...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
                 delay(80)
-                emit(ExportJob("job_standalone", toolType.title, ExportStatus.COMPLETED, 100f, "Video exported successfully!"))
+                emit(ExportJob(jobId = jId, status = ExportStatus.COMPLETED, progressPercentage = 100f, message = "Video exported successfully!", outputPath = output.outputPath, startedAt = start, completedAt = System.currentTimeMillis(), tool = toolType.title))
             }
         }
     }

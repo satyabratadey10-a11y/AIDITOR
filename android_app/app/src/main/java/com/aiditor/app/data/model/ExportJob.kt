@@ -1,18 +1,22 @@
 package com.aiditor.app.data.model
 
 data class ExportJob(
-    val jobId: String,
-    val status: ExportStatus,
-    val progressPercentage: Float,
-    val message: String,
-    val outputPath: String,
-    val startedAt: Long,
-    val completedAt: Long? = null
-)
+    val jobId: String = "",
+    val status: ExportStatus = ExportStatus.IDLE,
+    val progressPercentage: Float = 0f,
+    val message: String = "",
+    val outputPath: String = "",
+    val startedAt: Long = System.currentTimeMillis(),
+    val completedAt: Long? = null,
+    val tool: String = ""
+) {
+    val id: String get() = jobId
+}
 
 enum class ExportStatus {
     IDLE,
     QUEUED,
+    INITIALIZING,
     PROCESSING,
     COMPLETED,
     FAILED

@@ -51,16 +51,6 @@ class OnDeviceVideoProcessor(private val context: Context) {
         val jobId = "job_${System.currentTimeMillis()}"
         var currentProgress = 0f
 
-        emit(
-            ExportJob(
-                id = jobId,
-                tool = toolType.title,
-                status = ExportStatus.INITIALIZING,
-                progressPercentage = 5f,
-                message = "Initializing hardware video pipeline..."
-            )
-        )
-
         // Prepare output directory
         val exportDir = File(
             context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir,
@@ -69,6 +59,18 @@ class OnDeviceVideoProcessor(private val context: Context) {
 
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val outputFile = File(exportDir, "AIDITOR_${toolType.name}_$timeStamp.mp4")
+
+        emit(
+            ExportJob(
+                jobId = jobId,
+                tool = toolType.title,
+                status = ExportStatus.INITIALIZING,
+                progressPercentage = 5f,
+                message = "Initializing hardware video pipeline...",
+                outputPath = outputFile.absolutePath,
+                startedAt = System.currentTimeMillis()
+            )
+        )
 
         // Progress simulation + hardware transform steps
         val steps = listOf(
@@ -85,11 +87,13 @@ class OnDeviceVideoProcessor(private val context: Context) {
                 currentProgress += 3f
                 emit(
                     ExportJob(
-                        id = jobId,
+                        jobId = jobId,
                         tool = toolType.title,
                         status = ExportStatus.PROCESSING,
                         progressPercentage = currentProgress.coerceAtMost(targetProg),
-                        message = msg
+                        message = msg,
+                        outputPath = outputFile.absolutePath,
+                        startedAt = System.currentTimeMillis()
                     )
                 )
             }
@@ -133,11 +137,13 @@ class OnDeviceVideoProcessor(private val context: Context) {
         } catch (e: Exception) {
             emit(
                 ExportJob(
-                    id = jobId,
+                    jobId = jobId,
                     tool = toolType.title,
                     status = ExportStatus.FAILED,
                     progressPercentage = currentProgress,
-                    message = "Export error: ${e.localizedMessage ?: "Unknown error"}"
+                    message = "Export error: ${e.localizedMessage ?: "Unknown error"}",
+                    outputPath = outputFile.absolutePath,
+                    startedAt = System.currentTimeMillis()
                 )
             )
             return@flow
@@ -145,11 +151,14 @@ class OnDeviceVideoProcessor(private val context: Context) {
 
         emit(
             ExportJob(
-                id = jobId,
+                jobId = jobId,
                 tool = toolType.title,
                 status = ExportStatus.COMPLETED,
                 progressPercentage = 100f,
-                message = "Video exported successfully to Gallery!"
+                message = "Video exported successfully to Gallery!",
+                outputPath = outputFile.absolutePath,
+                startedAt = System.currentTimeMillis(),
+                completedAt = System.currentTimeMillis()
             )
         )
     }

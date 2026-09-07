@@ -26,7 +26,7 @@ class ProjectRepository(
 
     private val localFile: File? by lazy {
         try {
-            val ctx = context ?: if (::AiditorApp.instance.isInitialized) AiditorApp.instance else null
+            val ctx = context ?: AiditorApp.instance
             ctx?.let { File(it.filesDir, "aiditor_projects.json") }
         } catch (_: Exception) {
             null

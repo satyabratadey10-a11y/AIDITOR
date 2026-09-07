@@ -4,7 +4,7 @@ import android.app.Application
 
 class AiditorApp : Application() {
     companion object {
-        lateinit var instance: AiditorApp
+        var instance: AiditorApp? = null
             private set
     }
 

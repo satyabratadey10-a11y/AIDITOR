@@ -45,23 +45,41 @@ class ProjectRepository(
                 val array = JSONArray(jsonStr)
                 val list = mutableListOf<Project>()
                 for (i in 0 until array.length()) {
-                    val obj = array.getJSONObject(i)
+                    val pId = obj.getString("id")
+                    val pName = obj.getString("name")
+                    val vPath = obj.optString("videoPath", "")
+                    val dur = obj.optDouble("durationSeconds", 10.0)
+                    val initialClips = if (vPath.isNotEmpty()) {
+                        listOf(
+                            TimelineClip(
+                                id = "clip_$pId",
+                                title = pName,
+                                sourcePath = vPath,
+                                inPointSeconds = 0.0,
+                                outPointSeconds = dur,
+                                durationSeconds = dur,
+                                isSelected = true
+                            )
+                        )
+                    } else emptyList()
+
                     list.add(
                         Project(
-                            id = obj.getString("id"),
-                            name = obj.getString("name"),
-                            videoPath = obj.optString("videoPath", ""),
+                            id = pId,
+                            name = pName,
+                            videoPath = vPath,
                             thumbnailPath = obj.optString("thumbnailPath", ""),
                             fileSizeBytes = obj.optLong("fileSizeBytes", 0L),
                             fileSizeFormatted = obj.optString("fileSizeFormatted", "0.0 MB"),
-                            durationSeconds = obj.optDouble("durationSeconds", 10.0),
+                            durationSeconds = dur,
                             width = obj.optInt("width", 1920),
                             height = obj.optInt("height", 1080),
                             fps = obj.optDouble("fps", 30.0),
                             createdAt = obj.optString("createdAt", ""),
                             modifiedAt = obj.optString("modifiedAt", ""),
                             appliedTools = emptyList(),
-                            timelineMarkers = emptyList()
+                            timelineMarkers = emptyList(),
+                            clips = initialClips
                         )
                     )
                 }
@@ -119,6 +137,20 @@ class ProjectRepository(
             "0.0 MB"
         }
 
+        val initialClips = if (videoPath.isNotEmpty()) {
+            listOf(
+                TimelineClip(
+                    id = "clip_${System.currentTimeMillis()}",
+                    title = name,
+                    sourcePath = videoPath,
+                    inPointSeconds = 0.0,
+                    outPointSeconds = durationSeconds,
+                    durationSeconds = durationSeconds,
+                    isSelected = true
+                )
+            )
+        } else emptyList()
+
         val newProj = Project(
             id = "proj_${System.currentTimeMillis()}",
             name = name,
@@ -133,7 +165,8 @@ class ProjectRepository(
             createdAt = now,
             modifiedAt = now,
             appliedTools = emptyList(),
-            timelineMarkers = emptyList()
+            timelineMarkers = emptyList(),
+            clips = initialClips
         )
 
         val current = _projects.value.toMutableList()

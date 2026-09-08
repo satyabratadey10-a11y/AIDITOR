@@ -5,37 +5,38 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
-import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
  * High-performance, low-memory thumbnail cache for multi-track timeline filmstrip.
- * Uses RGB_565 bitmaps downsampled to tiny 96x54 previews and an LRU cache limited to 6 MB,
+ * Uses RGB_565 bitmaps downsampled to tiny 96x54 previews and an LRU cache limited to 120 frames (~1.2MB),
  * reducing memory consumption by over 70% compared to standard full-frame decoding.
  */
 object LowMemoryThumbnailCache {
 
-    private const val MAX_CACHE_BYTES = 6 * 1024 * 1024 // 6 MB max heap limit
+    private const val MAX_CACHE_ENTRIES = 120 // ~1.2 MB max heap limit
 
-    private val memoryCache = object : LruCache<String, Bitmap>(MAX_CACHE_BYTES) {
-        override fun sizeOf(key: String, bitmap: Bitmap): Int {
-            return bitmap.byteCount
-        }
-
-        override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
-            if (evicted && !oldValue.isRecycled && oldValue != newValue) {
+    private val lock = Any()
+    private val memoryCache = object : LinkedHashMap<String, Bitmap>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean {
+            val shouldRemove = size > MAX_CACHE_ENTRIES
+            if (shouldRemove && eldest != null) {
                 try {
-                    oldValue.recycle()
-                } catch (_: Exception) {}
+                    val bmp = eldest.value
+                    if (!bmp.isRecycled) {
+                        bmp.recycle()
+                    }
+                } catch (_: Throwable) {}
             }
+            return shouldRemove
         }
     }
 
-    fun getFromCache(videoPath: String, timeSec: Double): Bitmap? {
+    fun getFromCache(videoPath: String, timeSec: Double): Bitmap? = synchronized(lock) {
         val key = cacheKey(videoPath, timeSec)
-        return memoryCache.get(key)
+        memoryCache[key]
     }
 
     suspend fun getThumbnail(
@@ -94,7 +95,9 @@ object LowMemoryThumbnailCache {
                     rawBitmap
                 }
 
-                memoryCache.put(key, lowMemBitmap)
+                synchronized(lock) {
+                    memoryCache.put(key, lowMemBitmap)
+                }
                 return@withContext lowMemBitmap
             }
         } catch (_: Exception) {
@@ -106,8 +109,13 @@ object LowMemoryThumbnailCache {
         return@withContext null
     }
 
-    fun clearCache() {
-        memoryCache.evictAll()
+    fun clearCache() = synchronized(lock) {
+        for (bmp in memoryCache.values) {
+            try {
+                if (!bmp.isRecycled) bmp.recycle()
+            } catch (_: Throwable) {}
+        }
+        memoryCache.clear()
     }
 
     private fun cacheKey(videoPath: String, timeSec: Double): String {

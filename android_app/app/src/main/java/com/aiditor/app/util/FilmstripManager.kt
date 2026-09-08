@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import android.util.LruCache
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -16,24 +15,24 @@ import java.io.File
  * Optimizations:
  * 1. RGB_565 (16-bit) allocation - 50% RAM reduction compared to default ARGB_8888.
  * 2. Micro-resolution downscaling (88x50 px) - each thumbnail takes only ~8.8 KB.
- * 3. Strict 12MB LRU Memory Cache to guarantee low heap footprint on Android.
+ * 3. Strict 120-frame LRU Memory Cache to guarantee low heap footprint on Android.
  * 4. Asynchronous IO extraction with cached frame reuse.
  */
 class FilmstripManager(private val context: Context) {
 
-    // 12 MB memory cache cap for thumbnails
-    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
-    private val cacheSize = (maxMemory / 16).coerceIn(4096, 12288) // 4MB - 12MB limit
+    private val lock = Any()
+    private val maxThumbnails = 120 // ~1.1 MB max memory
 
-    private val thumbnailCache = object : LruCache<String, Bitmap>(cacheSize) {
-        override fun sizeOf(key: String, bitmap: Bitmap): Int {
-            return bitmap.byteCount / 1024
-        }
-
-        override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
-            if (evicted && oldValue != newValue && !oldValue.isRecycled) {
-                oldValue.recycle()
+    private val thumbnailCache = object : LinkedHashMap<String, Bitmap>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>?): Boolean {
+            val evict = size > maxThumbnails
+            if (evict && eldest != null) {
+                try {
+                    val bmp = eldest.value
+                    if (!bmp.isRecycled) bmp.recycle()
+                } catch (_: Throwable) {}
             }
+            return evict
         }
     }
 
@@ -46,8 +45,8 @@ class FilmstripManager(private val context: Context) {
         if (videoPath.isBlank()) return@withContext null
 
         val cacheKey = "${videoPath}_${(timeSeconds * 2).toInt()}"
-        synchronized(thumbnailCache) {
-            thumbnailCache.get(cacheKey)?.let {
+        synchronized(lock) {
+            thumbnailCache[cacheKey]?.let {
                 if (!it.isRecycled) return@withContext it
             }
         }
@@ -80,8 +79,8 @@ class FilmstripManager(private val context: Context) {
                     rawBitmap
                 }
 
-                synchronized(thumbnailCache) {
-                    thumbnailCache.put(cacheKey, lowRamBitmap)
+                synchronized(lock) {
+                    thumbnailCache[cacheKey] = lowRamBitmap
                 }
                 return@withContext lowRamBitmap
             }
@@ -90,9 +89,12 @@ class FilmstripManager(private val context: Context) {
         null
     }
 
-    fun clearCache() {
-        synchronized(thumbnailCache) {
-            thumbnailCache.evictAll()
+    fun clearCache() = synchronized(lock) {
+        for (bmp in thumbnailCache.values) {
+            try {
+                if (!bmp.isRecycled) bmp.recycle()
+            } catch (_: Throwable) {}
         }
+        thumbnailCache.clear()
     }
 }

@@ -3,6 +3,7 @@ package com.aiditor.app.data.repository
 import android.content.Context
 import com.aiditor.app.AiditorApp
 import com.aiditor.app.data.model.Project
+import com.aiditor.app.data.model.TimelineClip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -45,11 +46,12 @@ class ProjectRepository(
                 val array = JSONArray(jsonStr)
                 val list = mutableListOf<Project>()
                 for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
                     val pId = obj.getString("id")
                     val pName = obj.getString("name")
                     val vPath = obj.optString("videoPath", "")
                     val dur = obj.optDouble("durationSeconds", 10.0)
-                    val initialClips = if (vPath.isNotEmpty()) {
+                    val initialClips: List<TimelineClip> = if (vPath.isNotEmpty()) {
                         listOf(
                             TimelineClip(
                                 id = "clip_$pId",
@@ -137,7 +139,7 @@ class ProjectRepository(
             "0.0 MB"
         }
 
-        val initialClips = if (videoPath.isNotEmpty()) {
+        val initialClips: List<TimelineClip> = if (videoPath.isNotEmpty()) {
             listOf(
                 TimelineClip(
                     id = "clip_${System.currentTimeMillis()}",

@@ -165,7 +165,9 @@ fun WorkspaceScreen(
                     aspectRatio = uiState.aspectRatio,
                     trackingMode = uiState.trackingMode,
                     activeTool = uiState.activeTool,
+                    middleParams = uiState.middleParams,
                     onPlayPauseToggle = { viewModel.togglePlayPause() },
+                    onTimeUpdate = { viewModel.onPlaybackTimeUpdate(it) },
                     videoPath = uiState.project?.videoPath
                 )
             }

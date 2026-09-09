@@ -5,6 +5,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -76,6 +78,10 @@ fun TimelineSection(
     val density = LocalDensity.current
     val context = LocalContext.current
 
+    val currentSeekTime by rememberUpdatedState(currentTimeSeconds)
+    val currentDuration by rememberUpdatedState(totalDurationSeconds)
+    val currentOnSeek by rememberUpdatedState(onSeek)
+
     // Pixels per second scale (zoom factor)
     val pixelsPerSecond = 70f // 70 dp per second gives smooth scrubbing and thumbnail display
     val totalTimelineWidthDp = (totalDurationSeconds * (pixelsPerSecond / density.density)).dp.coerceAtLeast(360.dp)
@@ -132,17 +138,16 @@ fun TimelineSection(
                 )
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(BwWhite)
                         .clickable { onPlayPauseToggle() },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         painter = painterResource(id = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
                         contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = BwBlack,
-                        modifier = Modifier.size(18.dp)
+                        tint = BwWhite,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
                 Icon(
@@ -295,24 +300,45 @@ fun TimelineSection(
                     }
                 }
 
-                // Scrollable Tracks Area
+                // Scrollable Tracks Area with Fluid Draggable Playhead
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .pointerInput(totalDurationSeconds) {
-                            detectTapGestures { tapOffset ->
-                                val centerPx = size.width / 2f
-                                val clickDeltaFromCenter = tapOffset.x - centerPx
-                                val timeDelta = clickDeltaFromCenter / pixelsPerSecond
-                                onSeek((currentTimeSeconds + timeDelta).coerceIn(0.0, totalDurationSeconds))
-                            }
-                        }
-                        .pointerInput(totalDurationSeconds) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                val timeDelta = -dragAmount.x / pixelsPerSecond
-                                onSeek((currentTimeSeconds + timeDelta).coerceIn(0.0, totalDurationSeconds))
+                        .pointerInput(Unit) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val startX = down.position.x
+                                val startTime = currentSeekTime
+                                var isDragging = false
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) {
+                                        // Touch released: if user didn't drag past slop, it's a direct tap to seek!
+                                        if (!isDragging) {
+                                            val centerPx = size.width / 2f
+                                            val deltaPx = startX - centerPx
+                                            val deltaSec = deltaPx / pixelsPerSecond
+                                            val target = (startTime + deltaSec).coerceIn(0.0, currentDuration)
+                                            currentOnSeek(target)
+                                        }
+                                        break
+                                    }
+
+                                    val currentDragPx = change.position.x - startX
+                                    if (!isDragging && kotlin.math.abs(currentDragPx) > 8f) {
+                                        isDragging = true
+                                    }
+
+                                    if (isDragging) {
+                                        change.consume()
+                                        val deltaSec = -currentDragPx / pixelsPerSecond
+                                        val target = (startTime + deltaSec).coerceIn(0.0, currentDuration)
+                                        currentOnSeek(target)
+                                    }
+                                }
                             }
                         }
                 ) {
@@ -544,7 +570,13 @@ fun TimelineSection(
                             color = BwWhite,
                             start = Offset(centerPx, 0f),
                             end = Offset(centerPx, size.height),
-                            strokeWidth = 2.0f
+                            strokeWidth = 2.5f
+                        )
+                        // Playhead top needle cap
+                        drawCircle(
+                            color = BwWhite,
+                            radius = 3.5f,
+                            center = Offset(centerPx, 4f)
                         )
                     }
 

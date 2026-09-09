@@ -196,16 +196,23 @@ class WorkspaceViewModel(
         )
     }
 
+    fun onPlaybackTimeUpdate(posSec: Double) {
+        _uiState.value = _uiState.value.copy(
+            currentTimeSeconds = posSec.coerceIn(0.0, _uiState.value.totalDurationSeconds)
+        )
+    }
+
     fun togglePlayPause() {
         val willPlay = !_uiState.value.isPlaying
         _uiState.value = _uiState.value.copy(isPlaying = willPlay)
 
         playbackJob?.cancel()
-        if (willPlay) {
+        // If no video is present, run high-precision synthetic timer for preview/playhead
+        if (willPlay && _uiState.value.project?.videoPath.isNullOrBlank()) {
             playbackJob = viewModelScope.launch {
                 while (_uiState.value.isPlaying) {
-                    delay(33) // ~30 FPS UI playback updates
-                    var nextTime = _uiState.value.currentTimeSeconds + 0.033
+                    delay(16) // ~60 FPS smooth demo animation
+                    var nextTime = _uiState.value.currentTimeSeconds + 0.016
                     if (nextTime >= _uiState.value.totalDurationSeconds) {
                         nextTime = 0.0
                     }
@@ -249,33 +256,32 @@ class WorkspaceViewModel(
         val playhead = _uiState.value.currentTimeSeconds
         val currentClips = _uiState.value.clips.toMutableList()
 
-        // Find clip intersecting playhead or selected clip
+        // Find clip containing playhead
         val targetIndex = currentClips.indexOfFirst {
-            it.isSelected || (playhead > it.inPointSeconds && playhead < it.outPointSeconds)
+            playhead >= it.inPointSeconds && playhead <= it.outPointSeconds
         }
 
         if (targetIndex != -1) {
             val target = currentClips[targetIndex]
-            if (playhead > target.inPointSeconds && playhead < target.outPointSeconds) {
-                val clipA = target.copy(
-                    outPointSeconds = playhead,
-                    durationSeconds = playhead - target.inPointSeconds,
-                    isSelected = false
-                )
-                val clipB = target.copy(
-                    id = "clip_${System.currentTimeMillis()}",
-                    inPointSeconds = playhead,
-                    durationSeconds = target.outPointSeconds - playhead,
-                    isSelected = true
-                )
-                currentClips[targetIndex] = clipA
-                currentClips.add(targetIndex + 1, clipB)
+            val splitTime = playhead.coerceIn(target.inPointSeconds + 0.05, target.outPointSeconds - 0.05)
+            val clipA = target.copy(
+                outPointSeconds = splitTime,
+                durationSeconds = splitTime - target.inPointSeconds,
+                isSelected = false
+            )
+            val clipB = target.copy(
+                id = "clip_${System.currentTimeMillis()}",
+                inPointSeconds = splitTime,
+                durationSeconds = target.outPointSeconds - splitTime,
+                isSelected = true
+            )
+            currentClips[targetIndex] = clipA
+            currentClips.add(targetIndex + 1, clipB)
 
-                _uiState.value = _uiState.value.copy(
-                    clips = currentClips,
-                    selectedClipId = clipB.id
-                )
-            }
+            _uiState.value = _uiState.value.copy(
+                clips = currentClips,
+                selectedClipId = clipB.id
+            )
         }
     }
 
@@ -516,16 +522,21 @@ class WorkspaceViewModel(
 
         exportJobSubscription?.cancel()
         exportJobSubscription = viewModelScope.launch {
+            val source = _uiState.value.project?.videoPath?.ifBlank { _uiState.value.inputParams.sourcePath }
+                ?: _uiState.value.inputParams.sourcePath
+
             editingRepository.exportVideoProgress(
                 toolType = tool,
                 input = _uiState.value.inputParams.copy(
+                    sourcePath = source,
                     muteAudio = _uiState.value.isAudioMuted
                 ),
                 middle = _uiState.value.middleParams,
                 output = _uiState.value.outputParams.copy(
                     resolution = settings.resolution,
                     fps = settings.fps
-                )
+                ),
+                durationSeconds = _uiState.value.totalDurationSeconds
             ).collect { job ->
                 _uiState.value = _uiState.value.copy(activeExportJob = job)
             }

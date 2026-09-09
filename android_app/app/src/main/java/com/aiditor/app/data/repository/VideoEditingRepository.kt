@@ -18,7 +18,8 @@ class VideoEditingRepository(
     private val context: Context? = null
 ) {
     private val processor by lazy {
-        context?.let { OnDeviceVideoProcessor(it) }
+        val ctx = context ?: com.aiditor.app.AiditorApp.instance
+        ctx?.let { OnDeviceVideoProcessor(it) }
     }
 
     suspend fun getVisualizerData(

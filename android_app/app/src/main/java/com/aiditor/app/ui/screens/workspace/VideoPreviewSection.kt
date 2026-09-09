@@ -9,6 +9,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -18,8 +19,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -37,9 +40,11 @@ import androidx.media3.ui.PlayerView
 import com.aiditor.app.R
 import com.aiditor.app.data.model.ActiveTrackingMode
 import com.aiditor.app.data.model.AspectRatioMode
+import com.aiditor.app.data.model.MiddleParameters
 import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.theme.*
 import com.aiditor.app.util.LowMemoryExoPlayerHelper
+import kotlinx.coroutines.delay
 
 /**
  * High-performance, Low-Memory Video Preview Section.
@@ -59,7 +64,9 @@ fun VideoPreviewSection(
     aspectRatio: AspectRatioMode,
     trackingMode: ActiveTrackingMode,
     activeTool: ToolType?,
+    middleParams: MiddleParameters = MiddleParameters.OpticalFlow(),
     onPlayPauseToggle: () -> Unit,
+    onTimeUpdate: (Double) -> Unit = {},
     videoPath: String? = null,
     modifier: Modifier = Modifier
 ) {
@@ -87,24 +94,47 @@ fun VideoPreviewSection(
         }
     }
 
+    // Audio Mute Synchronization
     LaunchedEffect(isAudioMuted) {
         exoPlayer?.volume = if (isAudioMuted) 0f else 1f
     }
 
+    // Playback Speed Ramp Synchronization
+    LaunchedEffect(middleParams) {
+        val speed = when (middleParams) {
+            is MiddleParameters.SpeedRamp -> middleParams.maxSpeedMultiplier.coerceIn(0.25f, 8.0f)
+            else -> 1.0f
+        }
+        try {
+            exoPlayer?.setPlaybackSpeed(speed)
+        } catch (_: Exception) {}
+    }
+
+    // Master Clock Synchronization: ExoPlayer -> Timeline (When Playing)
     LaunchedEffect(isPlaying, exoPlayer) {
-        exoPlayer?.let { player ->
-            if (isPlaying && !player.isPlaying) {
-                player.play()
-            } else if (!isPlaying && player.isPlaying) {
-                player.pause()
+        val player = exoPlayer ?: return@LaunchedEffect
+        if (isPlaying) {
+            // Seek once to current scrubbed position if misaligned by >200ms
+            val startMs = (currentTimeSeconds * 1000).toLong()
+            if (kotlin.math.abs(player.currentPosition - startMs) > 200) {
+                player.seekTo(startMs)
             }
+            player.play()
+            while (isPlaying && player.isPlaying) {
+                val currentSec = player.currentPosition / 1000.0
+                onTimeUpdate(currentSec)
+                delay(16) // ~60 FPS smooth timeline sync
+            }
+        } else {
+            player.pause()
         }
     }
 
+    // Timeline Scrubbing / Seeking: Timeline -> ExoPlayer (ONLY When Paused)
     LaunchedEffect(currentTimeSeconds) {
-        exoPlayer?.let { player ->
-            val targetMs = (currentTimeSeconds * 1000).toLong()
-            if (Math.abs(player.currentPosition - targetMs) > 150) {
+        if (!isPlaying) {
+            exoPlayer?.let { player ->
+                val targetMs = (currentTimeSeconds * 1000).toLong()
                 player.seekTo(targetMs)
             }
         }
@@ -136,7 +166,10 @@ fun VideoPreviewSection(
                     color = if (trackingMode != ActiveTrackingMode.NONE) Color(0xFF2E7D32) else BwCardStroke,
                     shape = RoundedCornerShape(8.dp)
                 )
-                .clickable { onPlayPauseToggle() },
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onPlayPauseToggle() },
             contentAlignment = Alignment.Center
         ) {
             // Actual video surface via ExoPlayer
@@ -152,7 +185,36 @@ fun VideoPreviewSection(
                             )
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .drawWithContent {
+                            drawContent()
+                            // Real-time Color Grade adjustments
+                            if (middleParams is MiddleParameters.ColorGrade) {
+                                val b = middleParams.brightness
+                                if (b > 0.05f) {
+                                    drawRect(
+                                        Color.White.copy(alpha = b.coerceIn(0f, 0.7f)),
+                                        blendMode = BlendMode.Screen
+                                    )
+                                } else if (b < -0.05f) {
+                                    drawRect(
+                                        Color.Black.copy(alpha = (-b).coerceIn(0f, 0.7f)),
+                                        blendMode = BlendMode.Darken
+                                    )
+                                }
+                                val c = middleParams.contrast
+                                if (c > 1.05f) {
+                                    drawRect(
+                                        Color.White.copy(alpha = ((c - 1f) * 0.35f).coerceIn(0f, 0.5f)),
+                                        blendMode = BlendMode.Overlay
+                                    )
+                                }
+                                if (middleParams.saturation <= 0.05f) {
+                                    drawRect(Color.Black, blendMode = BlendMode.Saturation)
+                                }
+                            }
+                        }
                 )
             } else {
                 // Procedural video background fallback

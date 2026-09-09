@@ -70,13 +70,23 @@ fun TimelineSection(
     onRedo: () -> Unit,
     onToggleAudioMute: () -> Unit,
     onSelectClip: (String) -> Unit,
-    onSelectOverlay: (String) -> Unit,
-    onStopTracking: () -> Unit,
-    onTrimClipBoundaries: (String, Double, Double) -> Unit,
+    onDeselectAll: () -> Unit = {},
+    onSelectOverlay: (String) -> Unit = {},
+    onStopTracking: () -> Unit = {},
+    onTrimClipBoundaries: (String, Double, Double) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
+
+    val hasTrack2 = overlays.isNotEmpty() || trackingMode != ActiveTrackingMode.NONE
+    val hasTrack3 = overlays.size > 1
+
+    val timelineHeight = when {
+        hasTrack3 -> 180.dp
+        hasTrack2 -> 136.dp
+        else -> 96.dp
+    }
 
     val currentSeekTime by rememberUpdatedState(currentTimeSeconds)
     val currentDuration by rememberUpdatedState(totalDurationSeconds)
@@ -225,7 +235,7 @@ fun TimelineSection(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(180.dp)
+                .height(timelineHeight)
                 .background(Color(0xFF0D0D0E))
         ) {
             var timelineWidthPx by remember { mutableFloatStateOf(1000f) }
@@ -234,7 +244,7 @@ fun TimelineSection(
             Row(
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Fixed Left Track Actions Column (Audio Mute, Settings/Eye)
+                // Left Track Actions Column (Only active tracks show headers!)
                 Column(
                     modifier = Modifier
                         .width(42.dp)
@@ -262,41 +272,43 @@ fun TimelineSection(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    // Track 2 Header: Settings or Eye
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(CircleShape)
-                            .clickable { },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(
-                                id = if (trackingMode != ActiveTrackingMode.NONE) R.drawable.ic_settings else R.drawable.ic_eye
-                            ),
-                            contentDescription = "Track Settings",
-                            tint = BwWhite,
-                            modifier = Modifier.size(17.dp)
-                        )
+                    // Track 2 Header: Only show when Track 2 exists
+                    if (hasTrack2) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable { },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(
+                                    id = if (trackingMode != ActiveTrackingMode.NONE) R.drawable.ic_settings else R.drawable.ic_eye
+                                ),
+                                contentDescription = "Track Settings",
+                                tint = BwWhite,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(18.dp))
-
-                    // Track 3 Header: Eye
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            painter = painterResource(id = R.drawable.ic_eye),
-                            contentDescription = "Overlay Eye",
-                            tint = Color(0xFF888888),
-                            modifier = Modifier.size(15.dp)
-                        )
+                    // Track 3 Header: Only show when Track 3 exists
+                    if (hasTrack3) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_eye),
+                                contentDescription = "Overlay Eye",
+                                tint = Color(0xFF888888),
+                                modifier = Modifier.size(15.dp)
+                            )
+                        }
                     }
                 }
 
@@ -305,7 +317,7 @@ fun TimelineSection(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .pointerInput(Unit) {
+                        .pointerInput(clips, currentDuration) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 val startX = down.position.x
@@ -316,12 +328,25 @@ fun TimelineSection(
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                     if (!change.pressed) {
-                                        // Touch released: if user didn't drag past slop, it's a direct tap to seek!
+                                        // Touch released: if user didn't drag past slop, it's a direct tap to seek & select!
                                         if (!isDragging) {
                                             val centerPx = size.width / 2f
                                             val deltaPx = startX - centerPx
                                             val deltaSec = deltaPx / pixelsPerSecond
                                             val target = (startTime + deltaSec).coerceIn(0.0, currentDuration)
+
+                                            // Check if tap hit any clip on Track 1
+                                            val clickedClip = clips.firstOrNull { clip ->
+                                                val inSec = clip.inPointSeconds
+                                                val outSec = clip.inPointSeconds + clip.durationSeconds
+                                                target in inSec..outSec
+                                            }
+
+                                            if (clickedClip != null) {
+                                                onSelectClip(clickedClip.id)
+                                            } else {
+                                                onDeselectAll()
+                                            }
                                             currentOnSeek(target)
                                         }
                                         break
@@ -433,134 +458,154 @@ fun TimelineSection(
                                     strokeWidth = 2f
                                 )
 
-                                // If selected: Draw CapCut-style prominent white border with drag handles
-                                if (clip.isSelected || clip.id == selectedClipId) {
-                                    // White outline
+                                // 2 UI STATES:
+                                // State 1: Unselected (!isClipSelected): NO white border, NO handles. Clean filmstrip.
+                                // State 2: Selected (isClipSelected): Highlights the track with bold white border and handles.
+                                val isClipSelected = clip.isSelected || clip.id == selectedClipId
+                                if (isClipSelected) {
+                                    // CapCut-style prominent white border
                                     drawRect(
                                         color = BwWhite,
                                         topLeft = Offset(clipStartPx, t1Top),
                                         size = Size(clipWidthPx, t1Height),
-                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
                                     )
 
-                                    // Left handle
-                                    drawRect(
+                                    // Left vertical pill handle
+                                    drawRoundRect(
                                         color = BwWhite,
                                         topLeft = Offset(clipStartPx - 4f, t1Top),
-                                        size = Size(8f, t1Height)
+                                        size = Size(8f, t1Height),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
                                     )
-                                    // Right handle
-                                    drawRect(
+                                    // Right vertical pill handle
+                                    drawRoundRect(
                                         color = BwWhite,
                                         topLeft = Offset(clipEndPx - 4f, t1Top),
-                                        size = Size(8f, t1Height)
+                                        size = Size(8f, t1Height),
+                                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
                                     )
                                 }
                             }
                         }
 
                         // ------------------------------------------
-                        // C. Track 2: Effect / Tracking / Stabilization / Sticker (Y: 88..130)
+                        // C. Track 2: Effect / Tracking / Stabilization / Sticker (ONLY if active!)
                         // ------------------------------------------
-                        val t2Top = 88f
-                        val t2Height = 44f
+                        if (hasTrack2) {
+                            val t2Top = 88f
+                            val t2Height = 44f
 
-                        // Draw background slot
-                        drawRect(
-                            color = Color(0xFF111113),
-                            topLeft = Offset(0f, t2Top),
-                            size = Size(size.width, t2Height)
-                        )
+                            // Draw background slot
+                            drawRect(
+                                color = Color(0xFF111113),
+                                topLeft = Offset(0f, t2Top),
+                                size = Size(size.width, t2Height)
+                            )
 
-                        // Draw overlays
-                        overlays.forEach { overlay ->
-                            val ovStartPx = scrollOffsetPx + (overlay.startTimeSeconds.toFloat() * pixelsPerSecond)
-                            val ovWidthPx = (overlay.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(60f)
-                            val ovEndPx = ovStartPx + ovWidthPx
+                            // Draw overlays
+                            overlays.forEach { overlay ->
+                                val ovStartPx = scrollOffsetPx + (overlay.startTimeSeconds.toFloat() * pixelsPerSecond)
+                                val ovWidthPx = (overlay.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(60f)
+                                val ovEndPx = ovStartPx + ovWidthPx
 
-                            if (ovEndPx >= 0 && ovStartPx <= size.width) {
-                                when (overlay.type) {
-                                    OverlayType.TRACKING_EFFECT,
-                                    OverlayType.STABILIZATION_EFFECT,
-                                    OverlayType.FACE_TRACK_EFFECT -> {
-                                        // Green diagonal hatched bar (matching reference images 2 & 3!)
-                                        clipRect(ovStartPx, t2Top, ovEndPx, t2Top + t2Height) {
+                                if (ovEndPx >= 0 && ovStartPx <= size.width) {
+                                    when (overlay.type) {
+                                        OverlayType.TRACKING_EFFECT,
+                                        OverlayType.STABILIZATION_EFFECT,
+                                        OverlayType.FACE_TRACK_EFFECT -> {
+                                            // Green diagonal hatched bar (only when tracking is actually active!)
+                                            clipRect(ovStartPx, t2Top, ovEndPx, t2Top + t2Height) {
+                                                drawRect(
+                                                    color = Color(0xFF193B2D),
+                                                    topLeft = Offset(ovStartPx, t2Top),
+                                                    size = Size(ovWidthPx, t2Height)
+                                                )
+                                                // 45 degree hatched stripes
+                                                val stripeSpacing = 16f
+                                                var sx = ovStartPx - t2Height
+                                                while (sx < ovEndPx + t2Height) {
+                                                    drawLine(
+                                                        color = Color(0xFF265C45),
+                                                        start = Offset(sx, t2Top + t2Height),
+                                                        end = Offset(sx + t2Height, t2Top),
+                                                        strokeWidth = 5f
+                                                    )
+                                                    sx += stripeSpacing
+                                                }
+                                            }
+
+                                            // White selection or boundary line
+                                            drawLine(
+                                                color = Color(0xFF32835F),
+                                                start = Offset(ovStartPx, t2Top),
+                                                end = Offset(ovStartPx, t2Top + t2Height),
+                                                strokeWidth = 2f
+                                            )
+                                        }
+                                        OverlayType.SKULL_STICKER -> {
+                                            // Skull sticker sequence card
                                             drawRect(
-                                                color = Color(0xFF193B2D),
+                                                color = Color(0xFFE2E4E9),
                                                 topLeft = Offset(ovStartPx, t2Top),
                                                 size = Size(ovWidthPx, t2Height)
                                             )
-                                            // 45 degree hatched stripes
-                                            val stripeSpacing = 16f
-                                            var sx = ovStartPx - t2Height
-                                            while (sx < ovEndPx + t2Height) {
-                                                drawLine(
-                                                    color = Color(0xFF265C45),
-                                                    start = Offset(sx, t2Top + t2Height),
-                                                    end = Offset(sx + t2Height, t2Top),
-                                                    strokeWidth = 5f
+                                            // White border if selected
+                                            if (overlay.isSelected) {
+                                                drawRect(
+                                                    color = BwWhite,
+                                                    topLeft = Offset(ovStartPx, t2Top),
+                                                    size = Size(ovWidthPx, t2Height),
+                                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
                                                 )
-                                                sx += stripeSpacing
                                             }
                                         }
-
-                                        // White selection or boundary line
-                                        drawLine(
-                                            color = Color(0xFF32835F),
-                                            start = Offset(ovStartPx, t2Top),
-                                            end = Offset(ovStartPx, t2Top + t2Height),
-                                            strokeWidth = 2f
-                                        )
-                                    }
-                                    OverlayType.SKULL_STICKER -> {
-                                        // Skull sticker sequence card (matching image 1!)
-                                        drawRect(
-                                            color = Color(0xFFE2E4E9),
-                                            topLeft = Offset(ovStartPx, t2Top),
-                                            size = Size(ovWidthPx, t2Height)
-                                        )
-                                        // White border if selected
-                                        if (overlay.isSelected) {
+                                        else -> {
                                             drawRect(
-                                                color = BwWhite,
+                                                color = Color(0xFF2A2A2E),
                                                 topLeft = Offset(ovStartPx, t2Top),
-                                                size = Size(ovWidthPx, t2Height),
-                                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
+                                                size = Size(ovWidthPx, t2Height)
                                             )
                                         }
-                                    }
-                                    else -> {
-                                        drawRect(
-                                            color = Color(0xFF2A2A2E),
-                                            topLeft = Offset(ovStartPx, t2Top),
-                                            size = Size(ovWidthPx, t2Height)
-                                        )
                                     }
                                 }
                             }
                         }
 
                         // ------------------------------------------
-                        // D. Track 3: Secondary Overlay / Sticker (Y: 136..172)
+                        // D. Track 3: Secondary Overlay / Sticker (ONLY if active!)
                         // ------------------------------------------
-                        val t3Top = 136f
-                        val t3Height = 36f
+                        if (hasTrack3) {
+                            val t3Top = 136f
+                            val t3Height = 36f
 
-                        drawRect(
-                            color = Color(0xFF111113),
-                            topLeft = Offset(0f, t3Top),
-                            size = Size(size.width, t3Height)
-                        )
-
-                        // Secondary sticker strip (e.g. OK speech bubbles from Image 1)
-                        val okStartPx = scrollOffsetPx + (1.5f * pixelsPerSecond)
-                        val okWidthPx = 3.2f * pixelsPerSecond
-                        if (okStartPx + okWidthPx >= 0 && okStartPx <= size.width) {
                             drawRect(
-                                color = Color(0xFFB39DDB),
-                                topLeft = Offset(okStartPx, t3Top),
-                                size = Size(okWidthPx, t3Height)
+                                color = Color(0xFF111113),
+                                topLeft = Offset(0f, t3Top),
+                                size = Size(size.width, t3Height)
                             )
+
+                            // Secondary overlays (strictly from user overlays, no hardcoded placeholder!)
+                            overlays.drop(1).forEach { overlay ->
+                                val ovStartPx = scrollOffsetPx + (overlay.startTimeSeconds.toFloat() * pixelsPerSecond)
+                                val ovWidthPx = (overlay.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(60f)
+                                val ovEndPx = ovStartPx + ovWidthPx
+                                if (ovEndPx >= 0 && ovStartPx <= size.width) {
+                                    drawRect(
+                                        color = Color(0xFFB39DDB),
+                                        topLeft = Offset(ovStartPx, t3Top),
+                                        size = Size(ovWidthPx, t3Height)
+                                    )
+                                    if (overlay.isSelected) {
+                                        drawRect(
+                                            color = BwWhite,
+                                            topLeft = Offset(ovStartPx, t3Top),
+                                            size = Size(ovWidthPx, t3Height),
+                                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         // ------------------------------------------
@@ -581,63 +626,68 @@ fun TimelineSection(
                     }
 
                     // Compose UI elements overlaid onto the tracks:
-                    // 1. Duration badge on selected clip
+                    // 1. Duration badge ONLY on SELECTED clip (State 2)
                     val centerPx = timelineWidthPx / 2f
                     val scrollOffsetPx = centerPx - (currentTimeSeconds.toFloat() * pixelsPerSecond)
 
                     clips.forEach { clip ->
-                        val clipStartPx = scrollOffsetPx + (clip.inPointSeconds.toFloat() * pixelsPerSecond)
-                        val clipWidthPx = (clip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
+                        val isClipSelected = clip.isSelected || clip.id == selectedClipId
+                        if (isClipSelected) {
+                            val clipStartPx = scrollOffsetPx + (clip.inPointSeconds.toFloat() * pixelsPerSecond)
+                            val clipWidthPx = (clip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
 
-                        if (clipStartPx + clipWidthPx > 0 && clipStartPx < timelineWidthPx) {
-                            Box(
-                                modifier = Modifier
-                                    .offset(
-                                        x = with(density) { clipStartPx.toDp() + 4.dp },
-                                        y = with(density) { 24f.toDp() }
+                            if (clipStartPx + clipWidthPx > 0 && clipStartPx < timelineWidthPx) {
+                                Box(
+                                    modifier = Modifier
+                                        .offset(
+                                            x = with(density) { clipStartPx.toDp() + 6.dp },
+                                            y = with(density) { 25f.toDp() }
+                                        )
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color(0xEE000000))
+                                        .clickable { onSelectClip(clip.id) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.US, "%.1fs", clip.durationSeconds),
+                                        color = BwWhite,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
                                     )
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .background(Color(0xCC000000))
-                                    .clickable { onSelectClip(clip.id) }
-                                    .padding(horizontal = 5.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = String.format(Locale.US, "%.1fs", clip.durationSeconds),
-                                    color = BwWhite,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                                }
                             }
                         }
                     }
 
-                    // 2. "Stop" button on active tracking effect (matching images 2 & 3!)
-                    overlays.find { it.type == OverlayType.TRACKING_EFFECT || it.type == OverlayType.STABILIZATION_EFFECT || it.type == OverlayType.FACE_TRACK_EFFECT }?.let { trackingOverlay ->
-                        val ovStartPx = scrollOffsetPx + (trackingOverlay.startTimeSeconds.toFloat() * pixelsPerSecond)
-                        val ovWidthPx = (trackingOverlay.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(60f)
-                        val ovEndPx = ovStartPx + ovWidthPx
+                    // 2. "Stop" button on active tracking effect (ONLY when tracking mode or tracking overlay exists!)
+                    if (hasTrack2) {
+                        overlays.find { it.type == OverlayType.TRACKING_EFFECT || it.type == OverlayType.STABILIZATION_EFFECT || it.type == OverlayType.FACE_TRACK_EFFECT }?.let { trackingOverlay ->
+                            val ovStartPx = scrollOffsetPx + (trackingOverlay.startTimeSeconds.toFloat() * pixelsPerSecond)
+                            val ovWidthPx = (trackingOverlay.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(60f)
+                            val ovEndPx = ovStartPx + ovWidthPx
 
-                        if (ovEndPx > 0 && ovStartPx < timelineWidthPx) {
-                            // "Stop" pill button
-                            Box(
-                                modifier = Modifier
-                                    .offset(
-                                        x = with(density) { (ovEndPx.coerceAtMost(timelineWidthPx) - 60f).toDp() },
-                                        y = with(density) { 92f.toDp() }
+                            if (ovEndPx > 0 && ovStartPx < timelineWidthPx) {
+                                // "Stop" pill button
+                                Box(
+                                    modifier = Modifier
+                                        .offset(
+                                            x = with(density) { (ovEndPx.coerceAtMost(timelineWidthPx) - 60f).toDp() },
+                                            y = with(density) { 92f.toDp() }
+                                        )
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(BwWhite)
+                                        .clickable { onStopTracking() }
+                                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Stop",
+                                        color = BwBlack,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(BwWhite)
-                                    .clickable { onStopTracking() }
-                                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Stop",
-                                    color = BwBlack,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                }
                             }
                         }
                     }

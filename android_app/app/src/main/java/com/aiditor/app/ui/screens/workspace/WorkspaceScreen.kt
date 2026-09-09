@@ -19,6 +19,7 @@ import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.components.BwTopBar
 import com.aiditor.app.ui.components.ExportDialog
 import com.aiditor.app.ui.components.ExportProgressDialog
+import com.aiditor.app.ui.components.LogcatViewerDialog
 import com.aiditor.app.ui.theme.BwBlack
 import com.aiditor.app.util.VideoPickerHelper
 
@@ -46,6 +47,7 @@ fun WorkspaceScreen(
     }
 
     val uiState by viewModel.uiState.collectAsState()
+    var showLogcatDialog by remember { mutableStateOf(false) }
 
     // Replace video launcher
     val replacePickerLauncher = rememberLauncherForActivityResult(
@@ -71,7 +73,8 @@ fun WorkspaceScreen(
                 onBackClick = onBackToMainMenu,
                 onExportClick = { viewModel.showExportDialog(true) },
                 aspectRatio = uiState.aspectRatio,
-                onSelectAspectRatio = { viewModel.setAspectRatio(it) }
+                onSelectAspectRatio = { viewModel.setAspectRatio(it) },
+                onLogsClick = { showLogcatDialog = true }
             )
         },
         bottomBar = {
@@ -193,6 +196,7 @@ fun WorkspaceScreen(
                 onRedo = { viewModel.redo() },
                 onToggleAudioMute = { viewModel.toggleAudioMute() },
                 onSelectClip = { viewModel.selectClip(it) },
+                onDeselectAll = { viewModel.deselectAll() },
                 onSelectOverlay = { viewModel.selectOverlay(it) },
                 onStopTracking = { viewModel.stopTracking() },
                 onTrimClipBoundaries = { clipId, newIn, newOut ->
@@ -216,6 +220,13 @@ fun WorkspaceScreen(
             ExportProgressDialog(
                 exportJob = uiState.activeExportJob!!,
                 onDismiss = { viewModel.closeExportProgress() }
+            )
+        }
+
+        // Live Process Logcat & Diagnostic Logs Dialog
+        if (showLogcatDialog) {
+            LogcatViewerDialog(
+                onDismiss = { showLogcatDialog = false }
             )
         }
     }

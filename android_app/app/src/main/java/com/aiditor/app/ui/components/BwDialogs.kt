@@ -347,7 +347,7 @@ fun ExportProgressDialog(
                 Spacer(modifier = Modifier.height(20.dp))
 
                 LinearProgressIndicator(
-                    progress = { exportJob.progressPercentage / 100f },
+                    progress = (exportJob.progressPercentage / 100f).coerceIn(0f, 1f),
                     color = BwWhite,
                     trackColor = BwGreyDark,
                     modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp))

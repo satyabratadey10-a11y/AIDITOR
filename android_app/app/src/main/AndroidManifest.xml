@@ -32,6 +32,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.CrashReportActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Aiditor"
+            android:process=":crash_handler"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
     </application>
 
 </manifest>

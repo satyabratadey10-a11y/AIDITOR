@@ -34,6 +34,7 @@ fun BwTopBar(
     onExportClick: () -> Unit,
     aspectRatio: AspectRatioMode,
     onSelectAspectRatio: (AspectRatioMode) -> Unit,
+    onLogsClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -109,13 +110,28 @@ fun BwTopBar(
             }
         }
 
-        // Right: Export Button (Icon button matching reference images)
-        BwIconButton(
-            iconRes = R.drawable.ic_export,
-            onClick = onExportClick,
-            contentDescription = "Export Video",
-            size = 36.dp,
-            iconSize = 20.dp
-        )
+        // Right: Logs & Export Buttons
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (onLogsClick != null) {
+                BwIconButton(
+                    iconRes = R.drawable.ic_settings,
+                    onClick = onLogsClick,
+                    contentDescription = "Logs & Diagnostics",
+                    size = 36.dp,
+                    iconSize = 18.dp
+                )
+            }
+
+            BwIconButton(
+                iconRes = R.drawable.ic_export,
+                onClick = onExportClick,
+                contentDescription = "Export Video",
+                size = 36.dp,
+                iconSize = 20.dp
+            )
+        }
     }
 }

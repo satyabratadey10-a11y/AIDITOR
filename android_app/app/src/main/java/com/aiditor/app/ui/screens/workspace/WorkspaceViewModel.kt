@@ -75,41 +75,13 @@ class WorkspaceViewModel(
                     inPointSeconds = 0.0,
                     outPointSeconds = project.durationSeconds.coerceAtLeast(10.0),
                     durationSeconds = project.durationSeconds.coerceAtLeast(10.0),
-                    isSelected = true
+                    isSelected = false // Starts in State 1 (Not Selected); user clicks to select (State 2)
                 )
             )
         }
 
-        // Demo overlays matching reference images if none present
-        val initialOverlays = if (project.overlays.isNotEmpty()) {
-            project.overlays
-        } else {
-            listOf(
-                TimelineOverlay(
-                    id = "overlay_skull",
-                    type = OverlayType.SKULL_STICKER,
-                    label = "7.5s",
-                    startTimeSeconds = 1.0,
-                    durationSeconds = 7.5,
-                    isSelected = true
-                ),
-                TimelineOverlay(
-                    id = "overlay_tracking",
-                    type = OverlayType.TRACKING_EFFECT,
-                    label = "Tracking",
-                    startTimeSeconds = 1.2,
-                    durationSeconds = 5.0,
-                    isProcessing = true
-                ),
-                TimelineOverlay(
-                    id = "overlay_ok",
-                    type = OverlayType.OK_STICKER,
-                    label = "OK",
-                    startTimeSeconds = 1.5,
-                    durationSeconds = 3.2
-                )
-            )
-        }
+        // Only actual user-created overlays, zero dummy placeholders
+        val initialOverlays = project.overlays
 
         _uiState.value = _uiState.value.copy(
             project = project,
@@ -118,7 +90,7 @@ class WorkspaceViewModel(
             markers = project.timelineMarkers,
             clips = initialClips,
             overlays = initialOverlays,
-            selectedClipId = initialClips.firstOrNull()?.id,
+            selectedClipId = null, // State 1: Not Selected initially
             aspectRatio = project.aspectRatio,
             isAudioMuted = project.isAudioMuted,
             trackingMode = project.trackingMode,
@@ -232,12 +204,25 @@ class WorkspaceViewModel(
     }
 
     fun selectClip(clipId: String) {
+        val isAlreadySelected = _uiState.value.selectedClipId == clipId
+        val targetId = if (isAlreadySelected) null else clipId
         val updated = _uiState.value.clips.map {
-            it.copy(isSelected = it.id == clipId)
+            it.copy(isSelected = it.id == targetId)
         }
         _uiState.value = _uiState.value.copy(
             clips = updated,
-            selectedClipId = clipId
+            selectedClipId = targetId
+        )
+    }
+
+    fun deselectAll() {
+        val updated = _uiState.value.clips.map { it.copy(isSelected = false) }
+        val updatedOverlays = _uiState.value.overlays.map { it.copy(isSelected = false) }
+        _uiState.value = _uiState.value.copy(
+            clips = updated,
+            overlays = updatedOverlays,
+            selectedClipId = null,
+            selectedOverlayId = null
         )
     }
 

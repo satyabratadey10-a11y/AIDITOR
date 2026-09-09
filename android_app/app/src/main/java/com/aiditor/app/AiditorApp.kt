@@ -11,5 +11,6 @@ class AiditorApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.aiditor.app.util.CrashHandler.init(this)
     }
 }

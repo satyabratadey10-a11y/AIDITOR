@@ -39,129 +39,143 @@ class OnDeviceVideoProcessor(private val context: Context) {
         val jobId = "job_${System.currentTimeMillis()}"
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 
-        // Ensure movies export directory exists
-        val exportDir = File(
-            context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir,
-            "AIDITOR_Exports"
-        ).apply { mkdirs() }
+        try {
+            // Ensure movies export directory exists
+            val exportDir = File(
+                context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: context.filesDir,
+                "AIDITOR_Exports"
+            ).apply { mkdirs() }
 
-        val outputFile = File(exportDir, "AIDITOR_${toolType.name.lowercase()}_$timeStamp.mp4")
+            val outputFile = File(exportDir, "AIDITOR_${toolType.name.lowercase()}_$timeStamp.mp4")
 
-        emit(
-            ExportJob(
-                jobId = jobId,
-                tool = toolType.title,
-                status = ExportStatus.INITIALIZING,
-                progressPercentage = 5f,
-                message = "Initializing hardware video pipeline for ${toolType.title}...",
-                outputPath = outputFile.absolutePath,
-                startedAt = System.currentTimeMillis()
-            )
-        )
-
-        var exportSuccess = false
-
-        // Step 1: Attempt Real MediaExtractor + MediaMuxer Export if source video is available
-        if (input.sourcePath.isNotBlank()) {
             emit(
                 ExportJob(
                     jobId = jobId,
                     tool = toolType.title,
-                    status = ExportStatus.PROCESSING,
-                    progressPercentage = 15f,
-                    message = "Opening source video stream & indexing frames...",
+                    status = ExportStatus.INITIALIZING,
+                    progressPercentage = 5f,
+                    message = "Initializing hardware video pipeline for ${toolType.title}...",
                     outputPath = outputFile.absolutePath,
                     startedAt = System.currentTimeMillis()
                 )
             )
 
-            try {
-                val outSecVal = input.outPointSeconds ?: durationSeconds
-                val targetOutSec = if (outSecVal > input.inPointSeconds) outSecVal else durationSeconds
+            var exportSuccess = false
 
-                exportSuccess = runHardwareMuxerExport(
-                    sourcePath = input.sourcePath,
-                    outputFile = outputFile,
-                    inSec = input.inPointSeconds,
-                    outSec = targetOutSec,
-                    muteAudio = input.muteAudio
-                ) { pct, statusMsg ->
-                    emit(
-                        ExportJob(
-                            jobId = jobId,
-                            tool = toolType.title,
-                            status = ExportStatus.PROCESSING,
-                            progressPercentage = (15f + pct * 0.75f).coerceIn(15f, 95f),
-                            message = statusMsg,
-                            outputPath = outputFile.absolutePath,
-                            startedAt = System.currentTimeMillis()
-                        )
-                    )
-                }
-            } catch (e: Exception) {
-                exportSuccess = false
-            }
-        }
-
-        // Step 2: Fallback to MediaCodec H.264 Generator if no source video or muxer failed
-        if (!exportSuccess) {
-            emit(
-                ExportJob(
-                    jobId = jobId,
-                    tool = toolType.title,
-                    status = ExportStatus.PROCESSING,
-                    progressPercentage = 20f,
-                    message = "Encoding native H.264 video with hardware MediaCodec...",
-                    outputPath = outputFile.absolutePath,
-                    startedAt = System.currentTimeMillis()
-                )
-            )
-
-            exportSuccess = generateRealH264Video(
-                outputFile = outputFile,
-                width = 1280,
-                height = 720,
-                fps = output.fps.coerceIn(24, 60),
-                durationSeconds = durationSeconds.coerceIn(2.0, 10.0)
-            ) { pct, msg ->
+            // Step 1: Attempt Real MediaExtractor + MediaMuxer Export if source video is available
+            if (input.sourcePath.isNotBlank()) {
                 emit(
                     ExportJob(
                         jobId = jobId,
                         tool = toolType.title,
                         status = ExportStatus.PROCESSING,
-                        progressPercentage = (20f + pct * 0.75f).coerceIn(20f, 95f),
-                        message = msg,
+                        progressPercentage = 15f,
+                        message = "Opening source video stream & indexing frames...",
                         outputPath = outputFile.absolutePath,
                         startedAt = System.currentTimeMillis()
                     )
                 )
+
+                try {
+                    val outSecVal = input.outPointSeconds ?: durationSeconds
+                    val targetOutSec = if (outSecVal > input.inPointSeconds) outSecVal else durationSeconds
+
+                    exportSuccess = runHardwareMuxerExport(
+                        sourcePath = input.sourcePath,
+                        outputFile = outputFile,
+                        inSec = input.inPointSeconds,
+                        outSec = targetOutSec,
+                        muteAudio = input.muteAudio
+                    ) { pct, statusMsg ->
+                        emit(
+                            ExportJob(
+                                jobId = jobId,
+                                tool = toolType.title,
+                                status = ExportStatus.PROCESSING,
+                                progressPercentage = (15f + pct * 0.75f).coerceIn(15f, 95f),
+                                message = statusMsg,
+                                outputPath = outputFile.absolutePath,
+                                startedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                } catch (e: Throwable) {
+                    exportSuccess = false
+                }
             }
-        }
 
-        if (exportSuccess && outputFile.exists() && outputFile.length() > 0) {
-            // Register in MediaStore so it appears in device Gallery & Photos
-            registerInMediaStore(outputFile, "AIDITOR_${toolType.name}_$timeStamp.mp4")
-
-            emit(
-                ExportJob(
-                    jobId = jobId,
-                    tool = toolType.title,
-                    status = ExportStatus.COMPLETED,
-                    progressPercentage = 100f,
-                    message = "Export complete! Video saved to Movies/AIDITOR.",
-                    outputPath = outputFile.absolutePath,
-                    startedAt = System.currentTimeMillis(),
-                    completedAt = System.currentTimeMillis()
+            // Step 2: Fallback to MediaCodec H.264 Generator if no source video or muxer failed
+            if (!exportSuccess) {
+                emit(
+                    ExportJob(
+                        jobId = jobId,
+                        tool = toolType.title,
+                        status = ExportStatus.PROCESSING,
+                        progressPercentage = 20f,
+                        message = "Encoding native H.264 video with hardware MediaCodec...",
+                        outputPath = outputFile.absolutePath,
+                        startedAt = System.currentTimeMillis()
+                    )
                 )
-            )
-        } else {
+
+                exportSuccess = generateRealH264Video(
+                    outputFile = outputFile,
+                    width = 1280,
+                    height = 720,
+                    fps = output.fps.coerceIn(24, 60),
+                    durationSeconds = durationSeconds.coerceIn(2.0, 10.0)
+                ) { pct, msg ->
+                    emit(
+                        ExportJob(
+                            jobId = jobId,
+                            tool = toolType.title,
+                            status = ExportStatus.PROCESSING,
+                            progressPercentage = (20f + pct * 0.75f).coerceIn(20f, 95f),
+                            message = msg,
+                            outputPath = outputFile.absolutePath,
+                            startedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+
+            if (exportSuccess && outputFile.exists() && outputFile.length() > 0) {
+                // Register in MediaStore so it appears in device Gallery & Photos
+                registerInMediaStore(outputFile, "AIDITOR_${toolType.name}_$timeStamp.mp4")
+
+                emit(
+                    ExportJob(
+                        jobId = jobId,
+                        tool = toolType.title,
+                        status = ExportStatus.COMPLETED,
+                        progressPercentage = 100f,
+                        message = "Export complete! Video saved to Movies/AIDITOR.",
+                        outputPath = outputFile.absolutePath,
+                        startedAt = System.currentTimeMillis(),
+                        completedAt = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                emit(
+                    ExportJob(
+                        jobId = jobId,
+                        tool = toolType.title,
+                        status = ExportStatus.FAILED,
+                        progressPercentage = 0f,
+                        message = "Export failed to render video frames.",
+                        outputPath = "",
+                        startedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        } catch (e: Throwable) {
             emit(
                 ExportJob(
                     jobId = jobId,
                     tool = toolType.title,
                     status = ExportStatus.FAILED,
                     progressPercentage = 0f,
-                    message = "Export failed to render video frames.",
+                    message = "Export error: ${e.localizedMessage ?: e.javaClass.simpleName}",
                     outputPath = "",
                     startedAt = System.currentTimeMillis()
                 )
@@ -182,10 +196,23 @@ class OnDeviceVideoProcessor(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         val extractor = MediaExtractor()
         var muxer: MediaMuxer? = null
+        var muxerStarted = false
+        var pfd: android.os.ParcelFileDescriptor? = null
 
         try {
-            if (sourcePath.startsWith("content://") || sourcePath.startsWith("file://")) {
-                extractor.setDataSource(context, Uri.parse(sourcePath), null)
+            if (sourcePath.startsWith("content://")) {
+                val uri = Uri.parse(sourcePath)
+                pfd = try {
+                    context.contentResolver.openFileDescriptor(uri, "r")
+                } catch (_: Exception) { null }
+
+                if (pfd != null) {
+                    extractor.setDataSource(pfd.fileDescriptor)
+                } else {
+                    extractor.setDataSource(context, uri, null)
+                }
+            } else if (sourcePath.startsWith("file://")) {
+                extractor.setDataSource(Uri.parse(sourcePath).path ?: sourcePath)
             } else {
                 extractor.setDataSource(sourcePath)
             }
@@ -217,6 +244,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
             if (videoTrackIndex == -1) return@withContext false
 
             muxer.start()
+            muxerStarted = true
 
             val startUs = (inSec * 1_000_000).toLong().coerceAtLeast(0L)
             val endUs = if (outSec > inSec) {
@@ -276,11 +304,12 @@ class OnDeviceVideoProcessor(private val context: Context) {
         } catch (_: Exception) {
             return@withContext false
         } finally {
+            try { pfd?.close() } catch (_: Exception) {}
             try { extractor.release() } catch (_: Exception) {}
-            try {
-                muxer?.stop()
-                muxer?.release()
-            } catch (_: Exception) {}
+            if (muxerStarted) {
+                try { muxer?.stop() } catch (_: Exception) {}
+            }
+            try { muxer?.release() } catch (_: Exception) {}
         }
     }
 
@@ -402,10 +431,10 @@ class OnDeviceVideoProcessor(private val context: Context) {
                 encoder?.stop()
                 encoder?.release()
             } catch (_: Exception) {}
-            try {
-                muxer?.stop()
-                muxer?.release()
-            } catch (_: Exception) {}
+            if (muxerStarted) {
+                try { muxer?.stop() } catch (_: Exception) {}
+            }
+            try { muxer?.release() } catch (_: Exception) {}
         }
     }
 

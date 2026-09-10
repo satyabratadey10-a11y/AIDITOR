@@ -326,6 +326,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         var encoder: MediaCodec? = null
         var muxer: MediaMuxer? = null
+        var muxerStarted = false
 
         try {
             outputFile.parentFile?.mkdirs()
@@ -342,7 +343,6 @@ class OnDeviceVideoProcessor(private val context: Context) {
 
             muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             var videoTrackIndex = -1
-            var muxerStarted = false
 
             val totalFrames = (durationSeconds * fps).toInt().coerceAtLeast(30)
             val bufferInfo = MediaCodec.BufferInfo()

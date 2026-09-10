@@ -82,6 +82,7 @@ class WorkspaceViewModel(
 
         // Only actual user-created overlays, zero dummy placeholders
         val initialOverlays = project.overlays
+        val initialSelectedClipId = initialClips.find { it.isSelected }?.id
 
         _uiState.value = _uiState.value.copy(
             project = project,
@@ -90,7 +91,7 @@ class WorkspaceViewModel(
             markers = project.timelineMarkers,
             clips = initialClips,
             overlays = initialOverlays,
-            selectedClipId = null, // State 1: Not Selected initially
+            selectedClipId = initialSelectedClipId,
             aspectRatio = project.aspectRatio,
             isAudioMuted = project.isAudioMuted,
             trackingMode = project.trackingMode,
@@ -272,7 +273,10 @@ class WorkspaceViewModel(
 
     fun deleteSelectedClip() {
         pushUndoState()
-        val selId = _uiState.value.selectedClipId ?: return
+        val selId = _uiState.value.selectedClipId
+            ?: _uiState.value.clips.find { it.isSelected }?.id
+            ?: _uiState.value.clips.firstOrNull()?.id
+            ?: return
         val currentClips = _uiState.value.clips.filter { it.id != selId }
         val newSelection = currentClips.firstOrNull()?.id
         val updated = currentClips.map { it.copy(isSelected = it.id == newSelection) }
@@ -285,7 +289,10 @@ class WorkspaceViewModel(
 
     fun duplicateSelectedClip() {
         pushUndoState()
-        val selId = _uiState.value.selectedClipId ?: return
+        val selId = _uiState.value.selectedClipId
+            ?: _uiState.value.clips.find { it.isSelected }?.id
+            ?: _uiState.value.clips.firstOrNull()?.id
+            ?: return
         val currentClips = _uiState.value.clips.toMutableList()
         val index = currentClips.indexOfFirst { it.id == selId }
         if (index != -1) {

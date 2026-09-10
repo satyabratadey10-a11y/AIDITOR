@@ -10,7 +10,8 @@ import android.provider.MediaStore
 import com.aiditor.app.data.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flowOn
 import java.io.File
 import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
@@ -35,7 +36,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
         middle: MiddleParameters,
         output: OutputParameters,
         durationSeconds: Double = 10.0
-    ): Flow<ExportJob> = flow {
+    ): Flow<ExportJob> = channelFlow {
         val jobId = "job_${System.currentTimeMillis()}"
         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
 
@@ -48,7 +49,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
 
             val outputFile = File(exportDir, "AIDITOR_${toolType.name.lowercase()}_$timeStamp.mp4")
 
-            emit(
+            send(
                 ExportJob(
                     jobId = jobId,
                     tool = toolType.title,
@@ -64,7 +65,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
 
             // Step 1: Attempt Real MediaExtractor + MediaMuxer Export if source video is available
             if (input.sourcePath.isNotBlank()) {
-                emit(
+                send(
                     ExportJob(
                         jobId = jobId,
                         tool = toolType.title,
@@ -87,7 +88,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
                         outSec = targetOutSec,
                         muteAudio = input.muteAudio
                     ) { pct, statusMsg ->
-                        emit(
+                        send(
                             ExportJob(
                                 jobId = jobId,
                                 tool = toolType.title,
@@ -106,7 +107,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
 
             // Step 2: Fallback to MediaCodec H.264 Generator if no source video or muxer failed
             if (!exportSuccess) {
-                emit(
+                send(
                     ExportJob(
                         jobId = jobId,
                         tool = toolType.title,
@@ -125,7 +126,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
                     fps = output.fps.coerceIn(24, 60),
                     durationSeconds = durationSeconds.coerceIn(2.0, 10.0)
                 ) { pct, msg ->
-                    emit(
+                    send(
                         ExportJob(
                             jobId = jobId,
                             tool = toolType.title,
@@ -143,7 +144,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
                 // Register in MediaStore so it appears in device Gallery & Photos
                 registerInMediaStore(outputFile, "AIDITOR_${toolType.name}_$timeStamp.mp4")
 
-                emit(
+                send(
                     ExportJob(
                         jobId = jobId,
                         tool = toolType.title,
@@ -156,7 +157,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
                     )
                 )
             } else {
-                emit(
+                send(
                     ExportJob(
                         jobId = jobId,
                         tool = toolType.title,
@@ -169,7 +170,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
                 )
             }
         } catch (e: Throwable) {
-            emit(
+            send(
                 ExportJob(
                     jobId = jobId,
                     tool = toolType.title,
@@ -181,7 +182,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
                 )
             )
         }
-    }
+    }.flowOn(Dispatchers.IO)
 
     /**
      * Hardware MediaExtractor + MediaMuxer stream extraction, trimming, and muxing.
@@ -198,19 +199,51 @@ class OnDeviceVideoProcessor(private val context: Context) {
         var muxer: MediaMuxer? = null
         var muxerStarted = false
         var pfd: android.os.ParcelFileDescriptor? = null
+        var localTempFile: File? = null
 
         try {
             if (sourcePath.startsWith("content://")) {
                 val uri = Uri.parse(sourcePath)
+                var sourceSet = false
                 pfd = try {
                     context.contentResolver.openFileDescriptor(uri, "r")
                 } catch (_: Exception) { null }
 
                 if (pfd != null) {
-                    extractor.setDataSource(pfd.fileDescriptor)
-                } else {
-                    extractor.setDataSource(context, uri, null)
+                    try {
+                        extractor.setDataSource(pfd.fileDescriptor)
+                        sourceSet = true
+                    } catch (_: Exception) {}
                 }
+
+                if (!sourceSet) {
+                    try {
+                        extractor.setDataSource(context, uri, null)
+                        sourceSet = true
+                    } catch (_: Exception) {}
+                }
+
+                if (!sourceSet) {
+                    // Copy to temporary cache file for guaranteed direct file-descriptor access
+                    localTempFile = try {
+                        val temp = File(context.cacheDir, "temp_source_${System.currentTimeMillis()}.mp4")
+                        context.contentResolver.openInputStream(uri)?.use { inStream ->
+                            temp.outputStream().use { outStream ->
+                                inStream.copyTo(outStream)
+                            }
+                        }
+                        if (temp.exists() && temp.length() > 0) temp else null
+                    } catch (_: Exception) { null }
+
+                    if (localTempFile != null) {
+                        try {
+                            extractor.setDataSource(localTempFile.absolutePath)
+                            sourceSet = true
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                if (!sourceSet) return@withContext false
             } else if (sourcePath.startsWith("file://")) {
                 extractor.setDataSource(Uri.parse(sourcePath).path ?: sourcePath)
             } else {
@@ -305,6 +338,7 @@ class OnDeviceVideoProcessor(private val context: Context) {
             return@withContext false
         } finally {
             try { pfd?.close() } catch (_: Exception) {}
+            try { localTempFile?.delete() } catch (_: Exception) {}
             try { extractor.release() } catch (_: Exception) {}
             if (muxerStarted) {
                 try { muxer?.stop() } catch (_: Exception) {}

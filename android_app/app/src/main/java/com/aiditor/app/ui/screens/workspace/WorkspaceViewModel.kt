@@ -10,6 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import java.util.Stack
 
@@ -529,7 +530,19 @@ class WorkspaceViewModel(
                     fps = settings.fps
                 ),
                 durationSeconds = _uiState.value.totalDurationSeconds
-            ).collect { job ->
+            ).catch { e ->
+                _uiState.value = _uiState.value.copy(
+                    activeExportJob = ExportJob(
+                        jobId = "error_${System.currentTimeMillis()}",
+                        tool = tool.title,
+                        status = ExportStatus.FAILED,
+                        progressPercentage = 0f,
+                        message = "Export failed: ${e.localizedMessage ?: e.javaClass.simpleName}",
+                        outputPath = "",
+                        startedAt = System.currentTimeMillis()
+                    )
+                )
+            }.collect { job ->
                 _uiState.value = _uiState.value.copy(activeExportJob = job)
             }
         }

@@ -138,7 +138,22 @@ class TestAiditorBackend(unittest.TestCase):
         self.assertIn("-ss 1.500", cmd_str)
         self.assertIn("-t 3.500", cmd_str)
         self.assertIn("minterpolate", cmd_str)
+        self.assertIn("mc_mode=aobmc", cmd_str)
+        self.assertIn("me_mode=bidir", cmd_str)
+        self.assertIn("vsbmc=1", cmd_str)
+        self.assertIn("scd=fdiff", cmd_str)
+        self.assertIn("-r 60", cmd_str)
         self.assertIn("output.mp4", cmd_str)
+
+    def test_pipeline_optical_flow_enforces_min_60fps_output(self):
+        in_cfg = ToolInputConfig(source_path="input.mp4")
+        mid_cfg = ToolMiddleConfig(target_fps=30, flow_mode="mci")
+        out_cfg = ToolOutputConfig(output_path="output.mp4", resolution="1080p", fps=24)
+
+        cmd = PipelineEngine.build_ffmpeg_command(in_cfg, mid_cfg, out_cfg, tool_type="optical_flow")
+        cmd_str = " ".join(cmd)
+        self.assertIn("minterpolate=fps=60", cmd_str)
+        self.assertIn("-r 60", cmd_str)
 
 
 if __name__ == "__main__":

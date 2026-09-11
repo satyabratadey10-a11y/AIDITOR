@@ -34,7 +34,11 @@ data class TimelineClip(
     val outPointSeconds: Double = 10.0,
     val durationSeconds: Double = (outPointSeconds - inPointSeconds).coerceAtLeast(0.1),
     val speedMultiplier: Float = 1.0f,
-    val isSelected: Boolean = false
+    val isSelected: Boolean = false,
+    val speedCurvePoints: List<CurveControlPoint> = emptyList(),
+    val colorGrade: MiddleParameters.ColorGrade = MiddleParameters.ColorGrade(),
+    val isOpticalFlowEnabled: Boolean = false,
+    val opticalFlowFps: Int = 60
 )
 
 enum class OverlayType {

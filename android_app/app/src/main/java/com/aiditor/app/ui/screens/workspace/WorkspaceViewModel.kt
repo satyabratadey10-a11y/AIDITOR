@@ -211,9 +211,33 @@ class WorkspaceViewModel(
         val updated = _uiState.value.clips.map {
             it.copy(isSelected = it.id == targetId)
         }
+        val selClip = updated.find { it.id == targetId }
+        val newMiddle = if (selClip != null) {
+            when (_uiState.value.activeTool) {
+                ToolType.COLOR_GRADE -> selClip.colorGrade
+                ToolType.SPEED_RAMP -> MiddleParameters.SpeedRamp(
+                    curveControlPoints = selClip.speedCurvePoints.ifEmpty {
+                        listOf(
+                            CurveControlPoint(0.0f, 1.0f),
+                            CurveControlPoint(0.35f, 0.2f),
+                            CurveControlPoint(0.7f, selClip.speedMultiplier),
+                            CurveControlPoint(1.0f, 1.0f)
+                        )
+                    },
+                    maxSpeedMultiplier = selClip.speedMultiplier
+                )
+                ToolType.OPTICAL_FLOW -> MiddleParameters.OpticalFlow(
+                    isEnabled = selClip.isOpticalFlowEnabled,
+                    targetFps = selClip.opticalFlowFps
+                )
+                else -> selClip.colorGrade
+            }
+        } else _uiState.value.middleParams
+
         _uiState.value = _uiState.value.copy(
             clips = updated,
-            selectedClipId = targetId
+            selectedClipId = targetId,
+            middleParams = newMiddle
         )
     }
 
@@ -457,12 +481,26 @@ class WorkspaceViewModel(
             return
         }
 
+        val selClip = _uiState.value.clips.find { it.isSelected }
+            ?: _uiState.value.clips.firstOrNull()
+
         val defaultMiddle = when (tool) {
-            ToolType.OPTICAL_FLOW -> MiddleParameters.OpticalFlow()
+            ToolType.OPTICAL_FLOW -> MiddleParameters.OpticalFlow(
+                isEnabled = selClip?.isOpticalFlowEnabled ?: false,
+                targetFps = selClip?.opticalFlowFps ?: 60
+            )
             ToolType.BEAT_SYNC -> MiddleParameters.BeatSync()
             ToolType.MOTION_TRACKING -> MiddleParameters.MotionTracking()
-            ToolType.SPEED_RAMP -> MiddleParameters.SpeedRamp()
-            ToolType.COLOR_GRADE -> MiddleParameters.ColorGrade()
+            ToolType.SPEED_RAMP -> MiddleParameters.SpeedRamp(
+                curveControlPoints = selClip?.speedCurvePoints?.ifEmpty { null } ?: listOf(
+                    CurveControlPoint(0.0f, 1.0f),
+                    CurveControlPoint(0.35f, 0.2f),
+                    CurveControlPoint(0.7f, selClip?.speedMultiplier ?: 2.5f),
+                    CurveControlPoint(1.0f, 1.0f)
+                ),
+                maxSpeedMultiplier = selClip?.speedMultiplier ?: 2.5f
+            )
+            ToolType.COLOR_GRADE -> selClip?.colorGrade ?: MiddleParameters.ColorGrade()
             ToolType.ROTOSCOPE -> MiddleParameters.Rotoscope()
         }
 
@@ -474,8 +512,55 @@ class WorkspaceViewModel(
         refreshVisualizerData()
     }
 
+    fun applyCurrentToolToTimeline() {
+        pushUndoState()
+        val tool = _uiState.value.activeTool ?: return
+        val mid = _uiState.value.middleParams
+        val selId = _uiState.value.selectedClipId
+        val currentClips = _uiState.value.clips.toMutableList()
+        val targetIdx = if (selId != null) currentClips.indexOfFirst { it.id == selId } else 0
+
+        if (targetIdx != -1 && targetIdx < currentClips.size) {
+            val clip = currentClips[targetIdx]
+            val updatedClip = when (tool) {
+                ToolType.OPTICAL_FLOW -> {
+                    val flow = mid as? MiddleParameters.OpticalFlow ?: MiddleParameters.OpticalFlow()
+                    clip.copy(
+                        isOpticalFlowEnabled = flow.isEnabled,
+                        opticalFlowFps = flow.targetFps,
+                        speedMultiplier = if (flow.isEnabled && flow.slowMoFactor < 1.0f) flow.slowMoFactor else clip.speedMultiplier
+                    )
+                }
+                ToolType.SPEED_RAMP -> {
+                    val ramp = mid as? MiddleParameters.SpeedRamp ?: MiddleParameters.SpeedRamp()
+                    clip.copy(
+                        speedMultiplier = ramp.maxSpeedMultiplier,
+                        speedCurvePoints = ramp.curveControlPoints
+                    )
+                }
+                ToolType.COLOR_GRADE -> {
+                    val grade = mid as? MiddleParameters.ColorGrade ?: MiddleParameters.ColorGrade()
+                    clip.copy(colorGrade = grade)
+                }
+                else -> clip
+            }
+            currentClips[targetIdx] = updatedClip
+            _uiState.value = _uiState.value.copy(clips = currentClips)
+        }
+
+        closeToolInspector()
+    }
+
     fun closeToolInspector() {
-        _uiState.value = _uiState.value.copy(activeTool = null, activeVisualizerData = null)
+        // Keep active clip's color grade in preview if available
+        val selClip = _uiState.value.clips.find { it.isSelected }
+            ?: _uiState.value.clips.firstOrNull()
+        val fallbackMiddle = selClip?.colorGrade ?: _uiState.value.middleParams
+        _uiState.value = _uiState.value.copy(
+            activeTool = null,
+            activeVisualizerData = null,
+            middleParams = fallbackMiddle
+        )
     }
 
     fun updateInputParams(params: InputParameters) {

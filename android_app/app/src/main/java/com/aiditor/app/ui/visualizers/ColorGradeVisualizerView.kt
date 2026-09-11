@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aiditor.app.data.model.ToolVisualizerData
@@ -24,6 +25,7 @@ import com.aiditor.app.ui.theme.*
 @Composable
 fun ColorGradeVisualizerView(
     data: ToolVisualizerData.ColorGrade,
+    filterPreset: String = "original",
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -39,13 +41,32 @@ fun ColorGradeVisualizerView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "LUMINANCE HISTOGRAM & TONE CURVE",
-                color = BwWhite,
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                letterSpacing = 0.5.sp
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "LUMINANCE & TONE CURVE",
+                    color = BwWhite,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    letterSpacing = 0.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color(0xFF2E7D32))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = filterPreset.uppercase().replace("_", " "),
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
             Text(
                 text = "CONTRAST: ${String.format("%.2f", data.contrast)}",
                 color = BwWhite,
@@ -59,7 +80,7 @@ fun ColorGradeVisualizerView(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(110.dp)
+                .height(100.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(BwBlack)
                 .border(1.dp, BwGreyDark, RoundedCornerShape(8.dp))

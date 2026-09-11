@@ -1,8 +1,13 @@
 package com.aiditor.app.ui.screens.workspace
 
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.net.Uri
+import android.view.LayoutInflater
+import android.view.TextureView
+import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
@@ -40,6 +45,7 @@ import androidx.media3.ui.PlayerView
 import com.aiditor.app.R
 import com.aiditor.app.data.model.ActiveTrackingMode
 import com.aiditor.app.data.model.AspectRatioMode
+import com.aiditor.app.data.model.CurveControlPoint
 import com.aiditor.app.data.model.MiddleParameters
 import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.theme.*
@@ -48,8 +54,9 @@ import kotlinx.coroutines.delay
 
 /**
  * High-performance, Low-Memory Video Preview Section.
- * Configured with LowMemoryExoPlayerHelper to reduce RAM by >50%.
- * Features HUD overlays matching reference images:
+ * Configured with TextureView for real-time hardware-accelerated ColorFilter & LUT grading.
+ * Features dynamic Bézier speed ramp interpolation during playback,
+ * and HUD overlays matching reference images:
  * 1. Motion Tracking: Skull & Ok stickers with white bounding box and green reticle.
  * 2. Motion Stabilization: Dashed white circle with green feature tracking points.
  * 3. Face Tracking: Green corner brackets [ ] with dashed circle and crosshair.
@@ -99,22 +106,24 @@ fun VideoPreviewSection(
         exoPlayer?.volume = if (isAudioMuted) 0f else 1f
     }
 
-    // Playback Speed Ramp Synchronization
+    // Playback Speed & Optical Flow Slow-Mo Synchronization when paused
     LaunchedEffect(middleParams) {
-        val speed = when (middleParams) {
-            is MiddleParameters.SpeedRamp -> middleParams.maxSpeedMultiplier.coerceIn(0.25f, 8.0f)
+        val baseSpeed = when (middleParams) {
+            is MiddleParameters.SpeedRamp -> middleParams.maxSpeedMultiplier.coerceIn(0.1f, 8.0f)
+            is MiddleParameters.OpticalFlow -> if (middleParams.isEnabled && middleParams.slowMoFactor < 1.0f) {
+                middleParams.slowMoFactor.coerceIn(0.1f, 1.0f)
+            } else 1.0f
             else -> 1.0f
         }
         try {
-            exoPlayer?.setPlaybackSpeed(speed)
+            exoPlayer?.setPlaybackSpeed(baseSpeed)
         } catch (_: Exception) {}
     }
 
-    // Master Clock Synchronization: ExoPlayer -> Timeline (When Playing)
-    LaunchedEffect(isPlaying, exoPlayer) {
+    // Master Clock Synchronization & Dynamic Bézier Speed Ramp (When Playing)
+    LaunchedEffect(isPlaying, exoPlayer, middleParams, totalDurationSeconds) {
         val player = exoPlayer ?: return@LaunchedEffect
         if (isPlaying) {
-            // Seek once to current scrubbed position if misaligned by >200ms
             val startMs = (currentTimeSeconds * 1000).toLong()
             if (kotlin.math.abs(player.currentPosition - startMs) > 200) {
                 player.seekTo(startMs)
@@ -123,6 +132,18 @@ fun VideoPreviewSection(
             while (isPlaying && player.isPlaying) {
                 val currentSec = player.currentPosition / 1000.0
                 onTimeUpdate(currentSec)
+
+                // Dynamic speed ramp along the Bézier curve during playback
+                if (middleParams is MiddleParameters.SpeedRamp && middleParams.curveControlPoints.isNotEmpty()) {
+                    val normTime = (currentSec / totalDurationSeconds.coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f)
+                    val dynamicSpeed = evaluateCurveSpeed(middleParams.curveControlPoints, normTime)
+                    try {
+                        if (kotlin.math.abs(player.playbackParameters.speed - dynamicSpeed) > 0.05f) {
+                            player.setPlaybackSpeed(dynamicSpeed)
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 delay(16) // ~60 FPS smooth timeline sync
             }
         } else {
@@ -172,24 +193,37 @@ fun VideoPreviewSection(
                 ) { onPlayPauseToggle() },
             contentAlignment = Alignment.Center
         ) {
-            // Actual video surface via ExoPlayer
+            // Actual video surface via ExoPlayer TextureView
             if (exoPlayer != null) {
                 AndroidView(
                     factory = { ctx ->
-                        PlayerView(ctx).apply {
-                            player = exoPlayer
-                            useController = false
-                            layoutParams = ViewGroup.LayoutParams(
-                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                ViewGroup.LayoutParams.MATCH_PARENT
-                            )
+                        val view = LayoutInflater.from(ctx).inflate(R.layout.view_player, null) as PlayerView
+                        view.player = exoPlayer
+                        view.useController = false
+                        view.layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        view
+                    },
+                    update = { view ->
+                        view.player = exoPlayer
+                        val texture = view.videoSurfaceView as? TextureView
+                        if (texture != null && middleParams is MiddleParameters.ColorGrade) {
+                            val cm = buildColorMatrix(middleParams)
+                            val paint = Paint().apply {
+                                colorFilter = ColorMatrixColorFilter(cm)
+                            }
+                            texture.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+                        } else if (texture != null) {
+                            texture.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                         }
                     },
                     modifier = Modifier
                         .fillMaxSize()
                         .drawWithContent {
                             drawContent()
-                            // Real-time Color Grade adjustments
+                            // Real-time Compose Color Grade fallback / tint overlay
                             if (middleParams is MiddleParameters.ColorGrade) {
                                 val b = middleParams.brightness
                                 if (b > 0.05f) {
@@ -210,7 +244,7 @@ fun VideoPreviewSection(
                                         blendMode = BlendMode.Overlay
                                     )
                                 }
-                                if (middleParams.saturation <= 0.05f) {
+                                if (middleParams.saturation <= 0.05f || middleParams.filterPreset == "bw_cinema") {
                                     drawRect(Color.Black, blendMode = BlendMode.Saturation)
                                 }
                             }
@@ -220,7 +254,6 @@ fun VideoPreviewSection(
                 // Procedural video background fallback
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     drawRect(Color(0xFF141416))
-                    // Subtle grid
                     val step = 40f
                     var x = 0f
                     while (x < size.width) {
@@ -242,8 +275,6 @@ fun VideoPreviewSection(
 
                 when (trackingMode) {
                     ActiveTrackingMode.MOTION_STABILIZATION -> {
-                        // Image 2: Motion Stabilization
-                        // 1. Center dashed white circle
                         val cx = w * 0.52f
                         val cy = h * 0.48f
                         val radius = w * 0.26f
@@ -257,105 +288,104 @@ fun VideoPreviewSection(
                         }
                         drawContext.canvas.nativeCanvas.drawCircle(cx, cy, radius, paint)
 
-                        // 2. White center dot
-                        drawCircle(color = BwWhite, radius = 5f, center = Offset(cx, cy))
-
-                        // 3. Green feature tracking points scattered around
-                        val greenPoints = listOf(
-                            Offset(cx - 50f, cy - 20f),
-                            Offset(cx - 65f, cy + 30f),
-                            Offset(cx - 40f, cy + 80f),
-                            Offset(cx + 20f, cy + 95f),
-                            Offset(cx - 10f, cy + 110f),
-                            Offset(cx - 30f, cy + 120f),
-                            Offset(cx + 40f, cy + 70f),
-                            Offset(cx + 60f, cy - 10f),
-                            Offset(cx - 80f, cy - 60f),
-                            Offset(cx - 70f, cy - 80f)
+                        drawCircle(
+                            color = Color.White,
+                            radius = 10f,
+                            center = Offset(cx, cy)
                         )
-                        greenPoints.forEach { pt ->
-                            drawCircle(color = Color(0xFF00E676), radius = 4f, center = pt)
+
+                        val points = listOf(
+                            Offset(cx - radius * 0.6f, cy - radius * 0.3f),
+                            Offset(cx + radius * 0.5f, cy - radius * 0.5f),
+                            Offset(cx - radius * 0.2f, cy + radius * 0.4f),
+                            Offset(cx + radius * 0.4f, cy + radius * 0.2f),
+                            Offset(cx + radius * 0.1f, cy - radius * 0.7f),
+                            Offset(cx - radius * 0.7f, cy + radius * 0.1f),
+                            Offset(cx + radius * 0.6f, cy + radius * 0.6f)
+                        )
+                        points.forEach { pt ->
+                            drawCircle(
+                                color = Color(0xFF00E676),
+                                radius = 7f,
+                                center = pt
+                            )
                         }
                     }
-                    ActiveTrackingMode.FACE_TRACKING -> {
-                        // Image 3: Face Tracking
-                        val cx = w * 0.50f
-                        val cy = h * 0.38f
-                        val boxSize = w * 0.32f
-                        val half = boxSize / 2f
 
-                        // 1. Green corner brackets [ ]
-                        val cornerLen = 28f
+                    ActiveTrackingMode.FACE_TRACKING -> {
+                        val cx = w * 0.5f
+                        val cy = h * 0.46f
+                        val boxW = w * 0.48f
+                        val boxH = h * 0.38f
+                        val cornerLen = 30f
+
+                        val left = cx - boxW / 2
+                        val right = cx + boxW / 2
+                        val top = cy - boxH / 2
+                        val bottom = cy + boxH / 2
+
                         val greenColor = Color(0xFF00E676)
-                        val strokeW = 4f
+                        val strokeW = 5f
 
                         // Top-left corner
-                        drawLine(greenColor, Offset(cx - half, cy - half), Offset(cx - half + cornerLen, cy - half), strokeW)
-                        drawLine(greenColor, Offset(cx - half, cy - half), Offset(cx - half, cy - half + cornerLen), strokeW)
+                        drawLine(greenColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
+                        drawLine(greenColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)
 
                         // Top-right corner
-                        drawLine(greenColor, Offset(cx + half, cy - half), Offset(cx + half - cornerLen, cy - half), strokeW)
-                        drawLine(greenColor, Offset(cx + half, cy - half), Offset(cx + half, cy - half + cornerLen), strokeW)
+                        drawLine(greenColor, Offset(right, top), Offset(right - cornerLen, top), strokeW)
+                        drawLine(greenColor, Offset(right, top), Offset(right, top + cornerLen), strokeW)
 
                         // Bottom-left corner
-                        drawLine(greenColor, Offset(cx - half, cy + half), Offset(cx - half + cornerLen, cy + half), strokeW)
-                        drawLine(greenColor, Offset(cx - half, cy + half), Offset(cx - half, cy + half - cornerLen), strokeW)
+                        drawLine(greenColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
+                        drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
 
                         // Bottom-right corner
-                        drawLine(greenColor, Offset(cx + half, cy + half), Offset(cx + half - cornerLen, cy + half), strokeW)
-                        drawLine(greenColor, Offset(cx + half, cy + half), Offset(cx + half, cy + half - cornerLen), strokeW)
+                        drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
+                        drawLine(greenColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
 
-                        // 2. White dashed circle inside
+                        val radius = boxW * 0.32f
                         val paint = Paint().apply {
                             color = android.graphics.Color.WHITE
                             style = Paint.Style.STROKE
                             strokeWidth = 4f
-                            pathEffect = DashPathEffect(floatArrayOf(14f, 10f), 0f)
+                            pathEffect = DashPathEffect(floatArrayOf(15f, 12f), 0f)
                             isAntiAlias = true
                         }
-                        drawContext.canvas.nativeCanvas.drawCircle(cx, cy, half * 0.85f, paint)
+                        drawContext.canvas.nativeCanvas.drawCircle(cx, cy, radius, paint)
 
-                        // 3. Center crosshair dot
-                        drawCircle(color = BwWhite, radius = 4f, center = Offset(cx, cy))
+                        drawLine(Color.White.copy(alpha = 0.8f), Offset(cx - 15f, cy), Offset(cx + 15f, cy), 2f)
+                        drawLine(Color.White.copy(alpha = 0.8f), Offset(cx, cy - 15f), Offset(cx, cy + 15f), 2f)
                     }
-                    ActiveTrackingMode.MOTION_TRACKING -> {
-                        // Image 1: Motion Tracking with sticker bounding box and target crosshair
-                        val skullX = w * 0.65f
-                        val skullY = h * 0.36f
-                        val boxW = w * 0.35f
-                        val boxH = w * 0.38f
 
-                        // White bounding box around tracked object
+                    ActiveTrackingMode.MOTION_TRACKING -> {
+                        val cx = w * 0.5f
+                        val cy = h * 0.55f
+                        val boxSize = 80f
+
                         drawRect(
-                            color = BwWhite,
-                            topLeft = Offset(skullX - boxW / 2f, skullY - boxH / 2f),
-                            size = Size(boxW, boxH),
-                            style = Stroke(width = 2.5f)
+                            color = Color.White,
+                            topLeft = Offset(cx - boxSize / 2, cy - boxSize / 2),
+                            size = Size(boxSize, boxSize),
+                            style = Stroke(width = 3.5f)
                         )
 
-                        // Green target crosshair in center
-                        drawLine(Color(0xFF00E676), Offset(skullX - 10f, skullY), Offset(skullX + 10f, skullY), 2.5f)
-                        drawLine(Color(0xFF00E676), Offset(skullX, skullY - 10f), Offset(skullX, skullY + 10f), 2.5f)
-                        drawCircle(color = Color(0xFF00E676), radius = 3.5f, center = Offset(skullX, skullY))
+                        val inner = 24f
+                        val greenColor = Color(0xFF00E676)
+                        drawLine(greenColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 3f)
+                        drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 3f)
+
+                        drawCircle(color = greenColor, radius = 4f, center = Offset(cx, cy))
                     }
-                    ActiveTrackingMode.NONE -> {
-                        if (activeTool == ToolType.COLOR_GRADE) {
-                            // Subtle monochrome vignette
-                            drawRect(
-                                color = Color(0x22000000),
-                                topLeft = Offset(0f, 0f),
-                                size = Size(w, h)
-                            )
-                        }
-                    }
+
+                    ActiveTrackingMode.NONE -> {}
                 }
             }
 
-            // Pause Indicator Overlay
+            // Play / Pause central indicator (only shown when paused)
             if (!isPlaying) {
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
+                        .size(54.dp)
                         .clip(CircleShape)
                         .background(Color(0x88000000))
                         .border(1.5.dp, BwWhite, CircleShape),
@@ -387,6 +417,24 @@ fun VideoPreviewSection(
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
                 )
+                if (middleParams is MiddleParameters.OpticalFlow && middleParams.isEnabled) {
+                    Text(
+                        text = " • ⚡ FLOW ${middleParams.targetFps} FPS",
+                        color = Color(0xFF00E676),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                if (middleParams is MiddleParameters.ColorGrade && middleParams.filterPreset != "original") {
+                    Text(
+                        text = " • ${middleParams.filterPreset.uppercase().replace("_", " ")}",
+                        color = Color(0xFFFFD54F),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 if (trackingMode != ActiveTrackingMode.NONE) {
                     Text(
                         text = " • ${trackingMode.name.replace("_", " ")}",
@@ -399,4 +447,91 @@ fun VideoPreviewSection(
             }
         }
     }
+}
+
+/**
+ * Builds high-precision Android ColorMatrix for live GPU filtering on TextureView.
+ */
+fun buildColorMatrix(params: MiddleParameters.ColorGrade): ColorMatrix {
+    val cm = ColorMatrix()
+    cm.setSaturation(params.saturation)
+
+    val scale = params.contrast
+    val translate = (0.5f * (1f - scale) + params.brightness) * 255f
+    val contrastMatrix = ColorMatrix(floatArrayOf(
+        scale, 0f, 0f, 0f, translate,
+        0f, scale, 0f, 0f, translate,
+        0f, 0f, scale, 0f, translate,
+        0f, 0f, 0f, 1f, 0f
+    ))
+    cm.postConcat(contrastMatrix)
+
+    when (params.filterPreset) {
+        "bw_cinema" -> {
+            val bw = ColorMatrix()
+            bw.setSaturation(0f)
+            cm.postConcat(bw)
+        }
+        "cyberpunk_cool" -> {
+            val cool = ColorMatrix(floatArrayOf(
+                0.85f, 0f, 0f, 0f, -5f,
+                0f, 1.05f, 0f, 0f, 10f,
+                0f, 0f, 1.35f, 0f, 25f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            cm.postConcat(cool)
+        }
+        "warm_gold" -> {
+            val warm = ColorMatrix(floatArrayOf(
+                1.25f, 0f, 0f, 0f, 20f,
+                0f, 1.05f, 0f, 0f, 10f,
+                0f, 0f, 0.80f, 0f, -15f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            cm.postConcat(warm)
+        }
+        "vintage_90s" -> {
+            val vintage = ColorMatrix(floatArrayOf(
+                1.1f, 0f, 0f, 0f, 15f,
+                0f, 0.95f, 0f, 0f, 5f,
+                0f, 0f, 0.75f, 0f, -20f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            cm.postConcat(vintage)
+        }
+        "noir_dark" -> {
+            val noir = ColorMatrix(floatArrayOf(
+                1.5f, 0f, 0f, 0f, -30f,
+                0f, 1.5f, 0f, 0f, -30f,
+                0f, 0f, 1.5f, 0f, -30f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            cm.postConcat(noir)
+        }
+        else -> {}
+    }
+
+    return cm
+}
+
+/**
+ * Evaluates smooth Catmull-Rom / cubic Bézier curve velocity at normalized time (0..1).
+ */
+fun evaluateCurveSpeed(points: List<CurveControlPoint>, normTime: Float): Float {
+    if (points.isEmpty()) return 1.0f
+    if (points.size == 1) return points[0].speed.coerceIn(0.1f, 8.0f)
+    val sorted = points.sortedBy { it.time }
+    if (normTime <= sorted.first().time) return sorted.first().speed.coerceIn(0.1f, 8.0f)
+    if (normTime >= sorted.last().time) return sorted.last().speed.coerceIn(0.1f, 8.0f)
+    for (i in 0 until sorted.size - 1) {
+        val p0 = sorted[i]
+        val p1 = sorted[i + 1]
+        if (normTime in p0.time..p1.time) {
+            val span = (p1.time - p0.time).coerceAtLeast(0.001f)
+            val t = ((normTime - p0.time) / span).coerceIn(0f, 1f)
+            val smoothT = (1.0f - kotlin.math.cos(t * Math.PI.toFloat())) * 0.5f
+            return (p0.speed + (p1.speed - p0.speed) * smoothT).coerceIn(0.1f, 8.0f)
+        }
+    }
+    return sorted.last().speed.coerceIn(0.1f, 8.0f)
 }

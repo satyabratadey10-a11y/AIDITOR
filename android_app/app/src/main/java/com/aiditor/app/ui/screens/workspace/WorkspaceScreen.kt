@@ -96,7 +96,7 @@ fun WorkspaceScreen(
                         outputParams = uiState.outputParams,
                         onUpdateOutput = { viewModel.updateOutputParams(it) },
                         onClose = { viewModel.closeToolInspector() },
-                        onApplyToTimeline = { viewModel.closeToolInspector() },
+                        onApplyToTimeline = { viewModel.applyCurrentToolToTimeline() },
                         modifier = Modifier.heightIn(max = 300.dp)
                     )
                 }
@@ -117,7 +117,7 @@ fun WorkspaceScreen(
                     onAddImage = {
                         viewModel.addStickerOverlay(OverlayType.SKULL_STICKER)
                     },
-                    onEdit = {
+                    onOpticalFlow = {
                         viewModel.selectTool(ToolType.OPTICAL_FLOW)
                     },
                     onTune = {
@@ -139,6 +139,9 @@ fun WorkspaceScreen(
                     onClear = {
                         viewModel.clearActiveTracking()
                     },
+                    activeTool = uiState.activeTool,
+                    isOpticalFlowActive = uiState.clips.find { it.isSelected }?.isOpticalFlowEnabled == true ||
+                            (uiState.middleParams as? MiddleParameters.OpticalFlow)?.isEnabled == true,
                     trackingMode = uiState.trackingMode
                 )
             }

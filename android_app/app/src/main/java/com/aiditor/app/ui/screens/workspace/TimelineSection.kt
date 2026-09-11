@@ -637,24 +637,62 @@ fun TimelineSection(
                             val clipWidthPx = (clip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
 
                             if (clipStartPx + clipWidthPx > 0 && clipStartPx < timelineWidthPx) {
-                                Box(
+                                Row(
                                     modifier = Modifier
                                         .offset(
                                             x = with(density) { clipStartPx.toDp() + 6.dp },
                                             y = with(density) { 25f.toDp() }
-                                        )
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(Color(0xEE000000))
-                                        .clickable { onSelectClip(clip.id) }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = String.format(Locale.US, "%.1fs", clip.durationSeconds),
-                                        color = BwWhite,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xEE000000))
+                                            .clickable { onSelectClip(clip.id) }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = String.format(Locale.US, "%.1fs", clip.durationSeconds),
+                                            color = BwWhite,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    if (clip.isOpticalFlowEnabled) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xEE1B5E20))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "⚡ ${clip.opticalFlowFps} FPS",
+                                                color = Color(0xFFA5D6A7),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                    if (clip.colorGrade.filterPreset != "original") {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xEE37474F))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = clip.colorGrade.filterPreset.uppercase().replace("_", " "),
+                                                color = Color.White,
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

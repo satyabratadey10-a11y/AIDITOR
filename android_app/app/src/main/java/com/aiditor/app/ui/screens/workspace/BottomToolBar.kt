@@ -26,7 +26,7 @@ import com.aiditor.app.ui.theme.*
 /**
  * Bottom Action Toolbar matching the reference images:
  * - Far left: Return / back button `<` with two dots `··` in a dark rounded card
- * - Action tools: Split, Delete, Duplicate, Replace, Image, Edit, Tune, Speed, Track, Clear
+ * - Action tools: Split, Delete, Duplicate, Replace, Image, Optical Flow, Filters, Speed Ramp, Track, Clear
  */
 @Composable
 fun BottomToolBar(
@@ -36,11 +36,13 @@ fun BottomToolBar(
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
     onAddImage: () -> Unit,
-    onEdit: () -> Unit,
+    onOpticalFlow: () -> Unit,
     onTune: () -> Unit,
     onSpeed: () -> Unit,
     onTrack: () -> Unit,
     onClear: () -> Unit,
+    activeTool: ToolType? = null,
+    isOpticalFlowActive: Boolean = false,
     trackingMode: ActiveTrackingMode = ActiveTrackingMode.NONE,
     modifier: Modifier = Modifier
 ) {
@@ -129,25 +131,28 @@ fun BottomToolBar(
                 onClick = onAddImage
             )
 
-            // 6. Edit
+            // 6. Optical Flow (Explicit, clearly labeled with ic_optical_flow)
             ToolItem(
-                iconRes = R.drawable.ic_tune,
-                title = "Edit",
-                onClick = onEdit
+                iconRes = R.drawable.ic_optical_flow,
+                title = "Optical Flow",
+                onClick = onOpticalFlow,
+                isHighlighted = isOpticalFlowActive || activeTool == ToolType.OPTICAL_FLOW
             )
 
-            // 7. Tune
+            // 7. Filters / Color Grade
             ToolItem(
                 iconRes = R.drawable.ic_color_grade,
-                title = "Tune",
-                onClick = onTune
+                title = "Filters",
+                onClick = onTune,
+                isHighlighted = activeTool == ToolType.COLOR_GRADE
             )
 
-            // 8. Speed
+            // 8. Speed Ramp
             ToolItem(
                 iconRes = R.drawable.ic_speed_ramp,
                 title = "Speed",
-                onClick = onSpeed
+                onClick = onSpeed,
+                isHighlighted = activeTool == ToolType.SPEED_RAMP
             )
 
             // 9. Track / Stabilize Mode
@@ -155,7 +160,7 @@ fun BottomToolBar(
                 iconRes = R.drawable.ic_motion_track,
                 title = if (trackingMode != ActiveTrackingMode.NONE) "Tracking" else "Track",
                 onClick = onTrack,
-                isHighlighted = trackingMode != ActiveTrackingMode.NONE
+                isHighlighted = trackingMode != ActiveTrackingMode.NONE || activeTool == ToolType.MOTION_TRACKING
             )
 
             // 10. Clear
@@ -194,7 +199,7 @@ private fun ToolItem(
             text = title,
             color = if (isHighlighted) Color(0xFF4CAF50) else BwGreyLight,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Normal
+            fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Normal
         )
     }
 }

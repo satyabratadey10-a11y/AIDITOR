@@ -37,8 +37,9 @@ object FfmpegProcessBridge {
         when (middle) {
             is MiddleParameters.OpticalFlow -> {
                 filters.add("minterpolate=fps=${middle.targetFps}:mi_mode=${middle.flowMode}:scd=fd:scd_threshold=${middle.scdThreshold}")
-                if (middle.colorGrade) {
-                    filters.add("eq=contrast=1.2:saturation=0.0")
+                if (middle.slowMoFactor < 1.0f) {
+                    val ptsMult = 1.0f / middle.slowMoFactor.coerceAtLeast(0.1f)
+                    filters.add("setpts=$ptsMult*PTS")
                 }
             }
             is MiddleParameters.BeatSync -> {
@@ -55,7 +56,14 @@ object FfmpegProcessBridge {
                 filters.add("setpts=$mult*PTS")
             }
             is MiddleParameters.ColorGrade -> {
-                filters.add("eq=contrast=${middle.contrast}:exposure=${middle.exposure}:saturation=${middle.saturation}:brightness=${middle.brightness}:gamma=${middle.gamma}")
+                filters.add("eq=contrast=${middle.contrast}:brightness=${middle.brightness}:saturation=${middle.saturation}:gamma=${middle.gamma}")
+                when (middle.filterPreset) {
+                    "vintage_90s" -> filters.add("colorbalance=rs=0.15:gs=0.05:bs=-0.15")
+                    "cyberpunk_cool" -> filters.add("colorbalance=rs=-0.10:gs=0.05:bs=0.25")
+                    "warm_gold" -> filters.add("colorbalance=rs=0.20:gs=0.10:bs=-0.10")
+                    "bw_cinema" -> filters.add("eq=contrast=1.35:saturation=0.0")
+                    else -> {}
+                }
                 filters.add("unsharp=5:5:0.8:5:5:0.0")
             }
             is MiddleParameters.Rotoscope -> {

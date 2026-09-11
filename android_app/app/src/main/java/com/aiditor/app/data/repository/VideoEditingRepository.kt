@@ -107,29 +107,28 @@ class VideoEditingRepository(
             }
             ToolType.SPEED_RAMP -> {
                 val rampParams = middle as? MiddleParameters.SpeedRamp ?: MiddleParameters.SpeedRamp()
+                val pts = if (rampParams.curveControlPoints.isNotEmpty()) rampParams.curveControlPoints else listOf(
+                    CurveControlPoint(0.0f, 1.0f),
+                    CurveControlPoint(0.35f, 0.2f),
+                    CurveControlPoint(0.7f, rampParams.maxSpeedMultiplier),
+                    CurveControlPoint(1.0f, 1.0f)
+                )
+                val duration = rampParams.durationSeconds.toFloat().coerceAtLeast(0.5f)
                 val samples = mutableListOf<CurveSample>()
-                for (i in 0..40) {
-                    val norm = i / 40.0f
-                    val time = norm * rampParams.durationSeconds.toFloat()
-                    val speed = if (norm < 0.35f) {
-                        1.0f + (rampParams.maxSpeedMultiplier - 1.0f) * (norm / 0.35f)
-                    } else if (norm < 0.65f) {
-                        rampParams.maxSpeedMultiplier - (rampParams.maxSpeedMultiplier - 0.3f) * ((norm - 0.35f) / 0.3f)
-                    } else {
-                        0.3f + (1.0f - 0.3f) * ((norm - 0.65f) / 0.35f)
-                    }
+                val numSamples = 40
+                for (i in 0..numSamples) {
+                    val norm = i / numSamples.toFloat()
+                    val time = norm * duration
+                    // Piecewise linear or spline interpolation across control points
+                    val speed = interpolateSpeedAtNorm(pts, norm)
                     samples.add(CurveSample(time, speed, 0f))
                 }
+                val peak = pts.maxOfOrNull { it.speed } ?: rampParams.maxSpeedMultiplier
                 ToolVisualizerData.SpeedRamp(
                     preset = rampParams.preset,
-                    peakSpeed = rampParams.maxSpeedMultiplier,
+                    peakSpeed = peak,
                     samples = samples,
-                    controlPoints = listOf(
-                        CurveControlPoint(0.0f, 1.0f),
-                        CurveControlPoint(0.7f, rampParams.maxSpeedMultiplier),
-                        CurveControlPoint(1.3f, 0.3f),
-                        CurveControlPoint(2.0f, 1.0f)
-                    )
+                    controlPoints = pts
                 )
             }
             ToolType.COLOR_GRADE -> {
@@ -198,5 +197,24 @@ class VideoEditingRepository(
                 emit(ExportJob(jobId = jId, status = ExportStatus.COMPLETED, progressPercentage = 100f, message = "Video exported successfully!", outputPath = output.outputPath, startedAt = start, completedAt = System.currentTimeMillis(), tool = toolType.title))
             }
         }
+    private fun interpolateSpeedAtNorm(points: List<CurveControlPoint>, norm: Float): Float {
+        if (points.isEmpty()) return 1.0f
+        if (points.size == 1) return points[0].speed
+        val sorted = points.sortedBy { it.time }
+        if (norm <= sorted.first().time) return sorted.first().speed
+        if (norm >= sorted.last().time) return sorted.last().speed
+
+        for (i in 0 until sorted.size - 1) {
+            val p0 = sorted[i]
+            val p1 = sorted[i + 1]
+            if (norm in p0.time..p1.time) {
+                val span = (p1.time - p0.time).coerceAtLeast(0.001f)
+                val t = ((norm - p0.time) / span).coerceIn(0f, 1f)
+                val smoothT = (1.0f - kotlin.math.cos(t * Math.PI.toFloat())) * 0.5f
+                return p0.speed + (p1.speed - p0.speed) * smoothT
+            }
+        }
+        return sorted.last().speed
     }
 }
+

@@ -23,10 +23,12 @@ data class InputParameters(
 
 sealed class MiddleParameters {
     data class OpticalFlow(
+        val isEnabled: Boolean = false,
         val targetFps: Int = 60,
         val flowMode: String = "mci", // "mci" or "blend"
         val scdThreshold: Double = 10.0,
-        val colorGrade: Boolean = true
+        val colorGrade: Boolean = true,
+        val slowMoFactor: Float = 1.0f
     ) : MiddleParameters()
 
     data class BeatSync(
@@ -45,17 +47,23 @@ sealed class MiddleParameters {
     ) : MiddleParameters()
 
     data class SpeedRamp(
-        val preset: String = "flash_impact_ramp", // "flash_impact_ramp", "smooth_flow", "crash_zoom_in"
+        val preset: String = "hero_moment", // "hero_moment", "bullet_time", "montage", "flash_in", "flash_out", "custom", "linear"
         val durationSeconds: Double = 2.0,
         val maxSpeedMultiplier: Float = 2.5f,
-        val curveControlPoints: List<Point2D> = emptyList()
+        val curveControlPoints: List<CurveControlPoint> = listOf(
+            CurveControlPoint(0.0f, 1.0f),
+            CurveControlPoint(0.35f, 0.2f),
+            CurveControlPoint(0.7f, 2.5f),
+            CurveControlPoint(1.0f, 1.0f)
+        )
     ) : MiddleParameters()
 
     data class ColorGrade(
+        val filterPreset: String = "original",
         val lutPreset: String = "monochrome_cinema",
-        val contrast: Float = 1.25f,
+        val contrast: Float = 1.0f,
         val exposure: Float = 0.0f,
-        val saturation: Float = 0.0f, // Pure monochrome
+        val saturation: Float = 1.0f,
         val brightness: Float = 0.0f,
         val gamma: Float = 1.0f
     ) : MiddleParameters()

@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.aiditor.app.data.model.ActiveTrackingMode
+import com.aiditor.app.data.model.MiddleParameters
 import com.aiditor.app.data.model.OverlayType
 import com.aiditor.app.data.model.Project
 import com.aiditor.app.data.model.ToolType

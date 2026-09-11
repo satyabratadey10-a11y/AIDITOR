@@ -197,6 +197,8 @@ class VideoEditingRepository(
                 emit(ExportJob(jobId = jId, status = ExportStatus.COMPLETED, progressPercentage = 100f, message = "Video exported successfully!", outputPath = output.outputPath, startedAt = start, completedAt = System.currentTimeMillis(), tool = toolType.title))
             }
         }
+    }
+
     private fun interpolateSpeedAtNorm(points: List<CurveControlPoint>, norm: Float): Float {
         if (points.isEmpty()) return 1.0f
         if (points.size == 1) return points[0].speed

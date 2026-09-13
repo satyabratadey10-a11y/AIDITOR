@@ -28,7 +28,11 @@ sealed class MiddleParameters {
         val flowMode: String = "mci", // "mci" or "blend"
         val scdThreshold: Double = 10.0,
         val colorGrade: Boolean = true,
-        val slowMoFactor: Float = 1.0f
+        val slowMoFactor: Float = 1.0f,
+        val cachedVideoUri: String? = null,
+        val isRendering: Boolean = false,
+        val renderProgress: Float = 0f,
+        val renderStatusMessage: String = ""
     ) : MiddleParameters()
 
     data class BeatSync(

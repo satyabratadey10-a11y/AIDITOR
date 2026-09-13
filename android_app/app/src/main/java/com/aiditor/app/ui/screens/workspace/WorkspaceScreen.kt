@@ -98,7 +98,9 @@ fun WorkspaceScreen(
                         onUpdateOutput = { viewModel.updateOutputParams(it) },
                         onClose = { viewModel.closeToolInspector() },
                         onApplyToTimeline = { viewModel.applyCurrentToolToTimeline() },
-                        modifier = Modifier.heightIn(max = 300.dp)
+                        onRenderOpticalFlow = { viewModel.renderOpticalFlow() },
+                        onCancelOpticalFlow = { viewModel.cancelOpticalFlow() },
+                        modifier = Modifier.heightIn(max = 350.dp)
                     )
                 }
 
@@ -164,20 +166,32 @@ fun WorkspaceScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                VideoPreviewSection(
-                    currentTimeSeconds = uiState.currentTimeSeconds,
-                    totalDurationSeconds = uiState.totalDurationSeconds,
-                    isPlaying = uiState.isPlaying,
-                    isAudioMuted = uiState.isAudioMuted,
-                    aspectRatio = uiState.aspectRatio,
-                    trackingMode = uiState.trackingMode,
-                    activeTool = uiState.activeTool,
-                    middleParams = uiState.middleParams,
-                    onPlayPauseToggle = { viewModel.togglePlayPause() },
-                    onTimeUpdate = { viewModel.onPlaybackTimeUpdate(it) },
-                    videoPath = uiState.project?.videoPath
-                )
-            }
+                    val selClip = uiState.clips.find { it.isSelected } ?: uiState.clips.firstOrNull()
+                    val flowMiddle = uiState.middleParams as? MiddleParameters.OpticalFlow
+                    val activeVideoPath = if (flowMiddle?.isEnabled == true && !flowMiddle.cachedVideoUri.isNullOrBlank()) {
+                        flowMiddle.cachedVideoUri
+                    } else if (selClip?.isOpticalFlowEnabled == true && !selClip.opticalFlowCachedUri.isNullOrBlank()) {
+                        selClip.opticalFlowCachedUri
+                    } else if (!selClip?.sourcePath.isNullOrBlank()) {
+                        selClip?.sourcePath
+                    } else {
+                        uiState.project?.videoPath
+                    }
+
+                    VideoPreviewSection(
+                        currentTimeSeconds = uiState.currentTimeSeconds,
+                        totalDurationSeconds = uiState.totalDurationSeconds,
+                        isPlaying = uiState.isPlaying,
+                        isAudioMuted = uiState.isAudioMuted,
+                        aspectRatio = uiState.aspectRatio,
+                        trackingMode = uiState.trackingMode,
+                        activeTool = uiState.activeTool,
+                        middleParams = uiState.middleParams,
+                        onPlayPauseToggle = { viewModel.togglePlayPause() },
+                        onTimeUpdate = { viewModel.onPlaybackTimeUpdate(it) },
+                        videoPath = activeVideoPath
+                    )
+                }
 
             // 2. CENTER-TO-BOTTOM: Multi-Track Timeline
             TimelineSection(

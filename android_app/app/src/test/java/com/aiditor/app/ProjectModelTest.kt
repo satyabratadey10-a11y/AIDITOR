@@ -266,4 +266,45 @@ class ProjectModelTest {
         val cached = LowMemoryThumbnailCache.getFromCache("sample.mp4", 1.0)
         assertNull("Cache should return null after being cleared", cached)
     }
+
+    @Test
+    fun testOpticalFlowCacheCommandBuilder() {
+        val cmd = FfmpegProcessBridge.buildOpticalFlowCacheCommand(
+            inputPath = "input.mp4",
+            outputPath = "cached_60fps.mp4",
+            targetFps = 60,
+            flowMode = "mci",
+            scdThreshold = 10.0,
+            inPointSeconds = 1.0,
+            outPointSeconds = 4.0,
+            slowMoFactor = 0.5f
+        )
+        val cmdStr = cmd.joinToString(" ")
+        assertTrue(cmdStr.contains("ffmpeg"))
+        assertTrue(cmdStr.contains("-ss 1.000"))
+        assertTrue(cmdStr.contains("-t 3.000"))
+        assertTrue(cmdStr.contains("minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:me=epzs:mb_size=16:search_param=16:vsbmc=0:scd=fdiff:scd_threshold=10.0"))
+        assertTrue(cmdStr.contains("setpts=2.0*PTS"))
+        assertTrue(cmdStr.contains("-preset ultrafast"))
+        assertTrue(cmdStr.contains("cached_60fps.mp4"))
+    }
+
+    @Test
+    fun testOpticalFlowRenderProgressFlow() = runBlocking {
+        val repo = VideoEditingRepository()
+        val jobs = mutableListOf<ExportJob>()
+        repo.renderOpticalFlowProgress(
+            sourcePath = "", // Triggers fallback standalone progressive pipeline
+            targetFps = 60,
+            flowMode = "mci"
+        ).collect { job ->
+            jobs.add(job)
+        }
+
+        assertTrue(jobs.isNotEmpty())
+        assertEquals(ExportStatus.INITIALIZING, jobs.first().status)
+        assertEquals(ExportStatus.COMPLETED, jobs.last().status)
+        assertEquals(100f, jobs.last().progressPercentage, 0.01f)
+        assertTrue(jobs.last().outputPath.endsWith(".mp4"))
+    }
 }

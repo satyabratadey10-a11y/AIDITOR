@@ -46,6 +46,8 @@ fun ToolInspectorSheet(
     onUpdateOutput: (OutputParameters) -> Unit,
     onClose: () -> Unit,
     onApplyToTimeline: () -> Unit,
+    onRenderOpticalFlow: () -> Unit = {},
+    onCancelOpticalFlow: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -307,6 +309,144 @@ fun ToolInspectorSheet(
                     onValueChange = { onUpdateMiddle(middleParams.copy(scdThreshold = it.toDouble())) },
                     valueRange = 1f..30f
                 )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Action Card: Render & Cache 60 FPS
+                if (middleParams.isRendering) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF161D17)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0xFF4CAF50), RoundedCornerShape(10.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "SYNTHESIZING 60 FPS FRAMES...",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "${(middleParams.renderProgress * 100).toInt()}%",
+                                    color = Color(0xFFA5D6A7),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = { middleParams.renderProgress.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color(0xFF4CAF50),
+                                trackColor = Color(0xFF2E3B2F)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = middleParams.renderStatusMessage,
+                                color = BwGreyLight,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = onCancelOpticalFlow,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3E1E1E)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(32.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    text = "CANCEL RENDERING",
+                                    color = Color(0xFFFF8A80),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else if (!middleParams.cachedVideoUri.isNullOrBlank()) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF142416)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0xFF4CAF50), RoundedCornerShape(10.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "✓ 60 FPS CACHED & ACTIVE",
+                                    color = Color(0xFFA5D6A7),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "ExoPlayer is playing true 60 FPS interpolated video",
+                                    color = BwGreyLight,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = onRenderOpticalFlow,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    text = "RE-RENDER",
+                                    color = Color.Black,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = onRenderOpticalFlow,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                    ) {
+                        Text(
+                            text = "▶ RENDER & CACHE 60 FPS VIDEO",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
             }
             is MiddleParameters.BeatSync -> {
                 Text("Rhythm Vibe Style", color = BwGreyLight, fontSize = 12.sp)

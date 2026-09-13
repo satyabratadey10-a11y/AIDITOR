@@ -47,7 +47,11 @@ class OnDeviceVideoProcessor(private val context: Context) {
                 "AIDITOR_Exports"
             ).apply { mkdirs() }
 
-            val outputFile = File(exportDir, "AIDITOR_${toolType.name.lowercase()}_$timeStamp.mp4")
+            val outputFile = if (output.outputPath.isNotBlank()) {
+                File(output.outputPath).apply { parentFile?.mkdirs() }
+            } else {
+                File(exportDir, "AIDITOR_${toolType.name.lowercase()}_$timeStamp.mp4")
+            }
 
             send(
                 ExportJob(

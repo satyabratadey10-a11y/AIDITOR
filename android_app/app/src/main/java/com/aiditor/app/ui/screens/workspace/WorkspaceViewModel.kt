@@ -487,7 +487,9 @@ class WorkspaceViewModel(
         val defaultMiddle = when (tool) {
             ToolType.OPTICAL_FLOW -> MiddleParameters.OpticalFlow(
                 isEnabled = selClip?.isOpticalFlowEnabled ?: false,
-                targetFps = selClip?.opticalFlowFps ?: 60
+                targetFps = selClip?.opticalFlowFps ?: 60,
+                flowMode = selClip?.opticalFlowMode ?: "mci",
+                cachedVideoUri = selClip?.opticalFlowCachedUri
             )
             ToolType.BEAT_SYNC -> MiddleParameters.BeatSync()
             ToolType.MOTION_TRACKING -> MiddleParameters.MotionTracking()
@@ -528,6 +530,8 @@ class WorkspaceViewModel(
                     clip.copy(
                         isOpticalFlowEnabled = flow.isEnabled,
                         opticalFlowFps = flow.targetFps,
+                        opticalFlowMode = flow.flowMode,
+                        opticalFlowCachedUri = flow.cachedVideoUri,
                         speedMultiplier = if (flow.isEnabled && flow.slowMoFactor < 1.0f) flow.slowMoFactor else clip.speedMultiplier
                     )
                 }
@@ -637,6 +641,98 @@ class WorkspaceViewModel(
         _uiState.value = _uiState.value.copy(
             showExportProgressDialog = false,
             activeExportJob = null
+        )
+    }
+
+    private var opticalFlowJob: Job? = null
+
+    /**
+     * Triggers asynchronous on-device 60 FPS Optical Flow rendering and background caching.
+     * Streams progress (0-100%) to the UI state.
+     * Upon completion, automatically updates the clip and preview with the cached 60 FPS video!
+     */
+    fun renderOpticalFlow() {
+        val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
+        val source = selClip?.sourcePath?.ifBlank { _uiState.value.inputParams.sourcePath }
+            ?: _uiState.value.inputParams.sourcePath
+        val flowParams = _uiState.value.middleParams as? MiddleParameters.OpticalFlow ?: MiddleParameters.OpticalFlow()
+
+        opticalFlowJob?.cancel()
+        opticalFlowJob = viewModelScope.launch(Dispatchers.IO) {
+            _uiState.value = _uiState.value.copy(
+                middleParams = flowParams.copy(
+                    isRendering = true,
+                    renderProgress = 0.05f,
+                    renderStatusMessage = "Starting 60 FPS Optical Flow..."
+                )
+            )
+
+            editingRepository.renderOpticalFlowProgress(
+                sourcePath = source,
+                targetFps = flowParams.targetFps,
+                flowMode = flowParams.flowMode,
+                scdThreshold = flowParams.scdThreshold,
+                inSec = selClip?.inPointSeconds ?: 0.0,
+                outSec = selClip?.outPointSeconds ?: 10.0,
+                slowMoFactor = flowParams.slowMoFactor
+            ).collect { job ->
+                when (job.status) {
+                    ExportStatus.COMPLETED -> {
+                        val cachedUri = job.outputPath
+                        val currentClips = _uiState.value.clips.toMutableList()
+                        val targetIdx = if (selClip != null) currentClips.indexOfFirst { it.id == selClip.id } else 0
+                        if (targetIdx != -1 && targetIdx < currentClips.size) {
+                            currentClips[targetIdx] = currentClips[targetIdx].copy(
+                                isOpticalFlowEnabled = true,
+                                opticalFlowFps = flowParams.targetFps,
+                                opticalFlowMode = flowParams.flowMode,
+                                opticalFlowCachedUri = cachedUri
+                            )
+                        }
+
+                        _uiState.value = _uiState.value.copy(
+                            clips = currentClips,
+                            middleParams = flowParams.copy(
+                                isEnabled = true,
+                                isRendering = false,
+                                renderProgress = 1.0f,
+                                renderStatusMessage = "✓ 60 FPS Video Cached Successfully!",
+                                cachedVideoUri = cachedUri
+                            )
+                        )
+                    }
+                    ExportStatus.FAILED -> {
+                        _uiState.value = _uiState.value.copy(
+                            middleParams = flowParams.copy(
+                                isRendering = false,
+                                renderStatusMessage = job.message.ifEmpty { "Optical Flow failed" }
+                            )
+                        )
+                    }
+                    else -> {
+                        _uiState.value = _uiState.value.copy(
+                            middleParams = flowParams.copy(
+                                isRendering = true,
+                                renderProgress = (job.progressPercentage / 100f).coerceIn(0f, 1f),
+                                renderStatusMessage = job.message
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelOpticalFlow() {
+        opticalFlowJob?.cancel()
+        opticalFlowJob = null
+        val flowParams = _uiState.value.middleParams as? MiddleParameters.OpticalFlow ?: MiddleParameters.OpticalFlow()
+        _uiState.value = _uiState.value.copy(
+            middleParams = flowParams.copy(
+                isRendering = false,
+                renderProgress = 0f,
+                renderStatusMessage = "Cancelled"
+            )
         )
     }
 }

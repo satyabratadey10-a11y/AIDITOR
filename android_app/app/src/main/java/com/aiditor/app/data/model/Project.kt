@@ -38,7 +38,9 @@ data class TimelineClip(
     val speedCurvePoints: List<CurveControlPoint> = emptyList(),
     val colorGrade: MiddleParameters.ColorGrade = MiddleParameters.ColorGrade(),
     val isOpticalFlowEnabled: Boolean = false,
-    val opticalFlowFps: Int = 60
+    val opticalFlowFps: Int = 60,
+    val opticalFlowMode: String = "mci",
+    val opticalFlowCachedUri: String? = null
 )
 
 enum class OverlayType {

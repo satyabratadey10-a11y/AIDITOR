@@ -36,7 +36,12 @@ object FfmpegProcessBridge {
 
         when (middle) {
             is MiddleParameters.OpticalFlow -> {
-                filters.add("minterpolate=fps=${middle.targetFps}:mi_mode=${middle.flowMode}:scd=fd:scd_threshold=${middle.scdThreshold}")
+                val flowFilter = if (middle.flowMode == "blend") {
+                    "minterpolate=fps=${middle.targetFps}:mi_mode=blend:scd=fdiff:scd_threshold=${middle.scdThreshold}"
+                } else {
+                    "minterpolate=fps=${middle.targetFps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:me=epzs:mb_size=16:search_param=16:vsbmc=0:scd=fdiff:scd_threshold=${middle.scdThreshold}"
+                }
+                filters.add(flowFilter)
                 if (middle.slowMoFactor < 1.0f) {
                     val ptsMult = 1.0f / middle.slowMoFactor.coerceAtLeast(0.1f)
                     filters.add("setpts=$ptsMult*PTS")
@@ -101,6 +106,67 @@ object FfmpegProcessBridge {
         cmd.add("+faststart")
         cmd.add(output.outputPath.ifEmpty { "output_render.mp4" })
 
+        return cmd
+    }
+
+    /**
+     * Dedicated 60 FPS Optical Flow segment caching command builder.
+     * Uses mobile-optimized parameters (EPZS diamond search, AOBMC adaptive weighting,
+     * ultrafast x264 preset) for rapid on-device background rendering.
+     */
+    fun buildOpticalFlowCacheCommand(
+        inputPath: String,
+        outputPath: String,
+        targetFps: Int = 60,
+        flowMode: String = "mci",
+        scdThreshold: Double = 10.0,
+        inPointSeconds: Double = 0.0,
+        outPointSeconds: Double? = null,
+        slowMoFactor: Float = 1.0f
+    ): List<String> {
+        val cmd = mutableListOf<String>()
+        cmd.add("ffmpeg")
+        cmd.add("-hide_banner")
+        cmd.add("-y")
+        if (inPointSeconds > 0.0) {
+            cmd.add("-ss")
+            cmd.add(String.format("%.3f", inPointSeconds))
+        }
+        if (outPointSeconds != null && outPointSeconds > inPointSeconds) {
+            cmd.add("-t")
+            cmd.add(String.format("%.3f", outPointSeconds - inPointSeconds))
+        }
+        cmd.add("-i")
+        cmd.add(inputPath)
+
+        val filters = mutableListOf<String>()
+        val flowFilter = if (flowMode == "blend") {
+            "minterpolate=fps=$targetFps:mi_mode=blend:scd=fdiff:scd_threshold=$scdThreshold"
+        } else {
+            "minterpolate=fps=$targetFps:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:me=epzs:mb_size=16:search_param=16:vsbmc=0:scd=fdiff:scd_threshold=$scdThreshold"
+        }
+        filters.add(flowFilter)
+        if (slowMoFactor < 1.0f) {
+            val ptsMult = 1.0f / slowMoFactor.coerceAtLeast(0.1f)
+            filters.add("setpts=$ptsMult*PTS")
+        }
+        cmd.add("-vf")
+        cmd.add(filters.joinToString(","))
+        cmd.add("-c:v")
+        cmd.add("libx264")
+        cmd.add("-preset")
+        cmd.add("ultrafast")
+        cmd.add("-crf")
+        cmd.add("20")
+        cmd.add("-pix_fmt")
+        cmd.add("yuv420p")
+        cmd.add("-r")
+        cmd.add(targetFps.toString())
+        cmd.add("-c:a")
+        cmd.add("copy")
+        cmd.add("-movflags")
+        cmd.add("+faststart")
+        cmd.add(outputPath)
         return cmd
     }
 }

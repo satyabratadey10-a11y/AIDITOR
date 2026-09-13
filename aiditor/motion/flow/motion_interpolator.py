@@ -44,12 +44,16 @@ class OpticalFlowInterpolator:
 
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
+        # Enforce high-refresh output for smoother motion cadence
+        target_fps = max(int(target_fps), 60)
+
         # Build minterpolate filter
         if mode.lower() == "mci":
             # Motion Compensated Interpolation with EPZS bidirectional vectors & scene cut protection
             flow_filter = (
                 f"minterpolate=fps={target_fps}:mi_mode=mci:mc_mode=aobmc:"
-                f"me_mode=bidir:me=epzs:mb_size=16:search_param=16:scd=fdiff:scd_threshold={scd_threshold}"
+                f"me_mode=bidir:me=epzs:vsbmc=1:mb_size=8:search_param=32:"
+                f"scd=fdiff:scd_threshold={scd_threshold}"
             )
         elif mode.lower() == "blend":
             flow_filter = f"minterpolate=fps={target_fps}:mi_mode=blend:scd=fdiff:scd_threshold={scd_threshold}"

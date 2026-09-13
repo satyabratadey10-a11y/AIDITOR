@@ -67,9 +67,23 @@ class PipelineEngine:
         video_filters.append(f"scale={target_res}:force_original_aspect_ratio=decrease,pad={target_res}:(ow-iw)/2:(oh-ih)/2:black")
 
         # Tool-specific middle processing filter chain
+        output_fps = output_cfg.fps
         if tool_type == "optical_flow":
             mode_str = "mci" if middle_cfg.flow_mode == "mci" else "blend"
-            video_filters.append(f"minterpolate='fps={middle_cfg.target_fps}:mi_mode={mode_str}:scd=fd:scd_threshold={middle_cfg.scd_threshold}'")
+            flow_fps = max(int(middle_cfg.target_fps), 60)
+            output_fps = max(int(output_cfg.fps), flow_fps)
+            if mode_str == "mci":
+                flow_filter = (
+                    f"minterpolate=fps={flow_fps}:mi_mode=mci:mc_mode=aobmc:"
+                    f"me_mode=bidir:me=epzs:vsbmc=1:mb_size=8:search_param=32:"
+                    f"scd=fdiff:scd_threshold={middle_cfg.scd_threshold}"
+                )
+            else:
+                flow_filter = (
+                    f"minterpolate=fps={flow_fps}:mi_mode=blend:"
+                    f"scd=fdiff:scd_threshold={middle_cfg.scd_threshold}"
+                )
+            video_filters.append(flow_filter)
             if middle_cfg.color_grade:
                 video_filters.append("eq=contrast=1.15:saturation=0.0")  # Minimalist B&W styling
 
@@ -120,7 +134,7 @@ class PipelineEngine:
             "-preset", "ultrafast" if is_preview else "medium",
             "-crf", str(24 if is_preview else output_cfg.crf),
             "-pix_fmt", "yuv420p",
-            "-r", str(output_cfg.fps)
+            "-r", str(output_fps)
         ])
 
         if input_cfg.mute_audio:

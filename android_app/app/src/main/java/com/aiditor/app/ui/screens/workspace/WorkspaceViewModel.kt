@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.aiditor.app.data.model.*
 import com.aiditor.app.data.repository.ProjectRepository
 import com.aiditor.app.data.repository.VideoEditingRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow

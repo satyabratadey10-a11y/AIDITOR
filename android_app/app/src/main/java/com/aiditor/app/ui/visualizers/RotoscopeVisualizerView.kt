@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,9 +68,33 @@ fun RotoscopeVisualizerView(
                 val w = size.width
                 val h = size.height
 
+                // Parse neon color safely
+                val baseNeonColor = try {
+                    Color(android.graphics.Color.parseColor(data.neonColor))
+                } catch (e: Exception) {
+                    Color(0xFF00F0FF)
+                }
+
                 // Draw background grid lines
                 drawLine(Color(0xFF222222), Offset(0f, h / 2f), Offset(w, h / 2f), 1f)
                 drawLine(Color(0xFF222222), Offset(w / 2f, 0f), Offset(w / 2f, h), 1f)
+
+                // If behind_text preset, draw text layer in background
+                if (data.preset == "behind_text") {
+                    val textPaint = android.graphics.Paint().apply {
+                        color = android.graphics.Color.argb(160, 255, 255, 255)
+                        textSize = 36f
+                        typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                        textAlign = android.graphics.Paint.Align.CENTER
+                        isAntiAlias = true
+                    }
+                    drawContext.canvas.nativeCanvas.drawText(
+                        data.textContent.ifEmpty { "AIDITOR" },
+                        w * 0.5f,
+                        h * 0.58f,
+                        textPaint
+                    )
+                }
 
                 // Draw rotoscope polygonal contour
                 if (data.contourPoints.isNotEmpty()) {
@@ -82,22 +107,59 @@ fun RotoscopeVisualizerView(
                     polyPath.close()
 
                     // Semi-transparent subject silhouette fill
+                    val fillColor = if (data.preset == "silhouette") {
+                        Color(0xBB000000)
+                    } else {
+                        baseNeonColor.copy(alpha = 0.18f)
+                    }
                     drawPath(
                         path = polyPath,
-                        color = Color(0x33FFFFFF)
+                        color = fillColor
                     )
-                    // Bright white contour edge outline
+
+                    // Outer Diffuse Glow
+                    val glowScale = data.glowIntensity.coerceIn(0.5f, 3.0f)
+                    val baseWidth = data.outlineWidth.coerceIn(1f, 12f)
+
                     drawPath(
                         path = polyPath,
-                        color = BwWhite,
-                        style = Stroke(width = 2.0f)
+                        color = baseNeonColor.copy(alpha = 0.20f),
+                        style = Stroke(width = baseWidth * 3.5f * glowScale)
                     )
+
+                    // Mid Neon Glow
+                    drawPath(
+                        path = polyPath,
+                        color = baseNeonColor.copy(alpha = 0.55f),
+                        style = Stroke(width = baseWidth * 1.8f * glowScale)
+                    )
+
+                    // Sharp Neon Stroke
+                    drawPath(
+                        path = polyPath,
+                        color = baseNeonColor,
+                        style = Stroke(width = baseWidth)
+                    )
+
+                    // Inner White Hot Core (Neon Saber effect)
+                    if (data.preset == "neon_saber" || data.preset == "cyberpunk_glow") {
+                        drawPath(
+                            path = polyPath,
+                            color = Color.White.copy(alpha = 0.85f),
+                            style = Stroke(width = (baseWidth * 0.4f).coerceAtLeast(1.0f))
+                        )
+                    }
 
                     // Draw control vertices
                     data.contourPoints.forEach { pt ->
                         drawCircle(
-                            color = BwWhite,
-                            radius = 2.5f,
+                            color = baseNeonColor,
+                            radius = 3.5f,
+                            center = Offset(pt.x * w, pt.y * h)
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 1.5f,
                             center = Offset(pt.x * w, pt.y * h)
                         )
                     }

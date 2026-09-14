@@ -51,10 +51,28 @@ object FfmpegProcessBridge {
                 filters.add("eq=contrast=1.3:saturation=0.0")
             }
             is MiddleParameters.MotionTracking -> {
-                val boxX = "(w*${middle.targetX}-40)"
-                val boxY = "(h*${middle.targetY}-40)"
-                filters.add("drawbox=x=$boxX:y=$boxY:w=80:h=80:color=white@0.9:t=2")
-                filters.add("drawtext=text='[${middle.hudTitle}]':x=$boxX:y=($boxY-24):fontsize=20:fontcolor=white")
+                val boxW = "(w*${middle.boxWidth.coerceIn(0.05f, 0.4f)})"
+                val boxH = "(h*${middle.boxHeight.coerceIn(0.05f, 0.4f)})"
+                val boxX = "(w*${middle.targetX}-$boxW/2)"
+                val boxY = "(h*${middle.targetY}-$boxH/2)"
+                when (middle.trackingMode) {
+                    "target_lock" -> {
+                        // Stabilize & center the tracked target with dynamic crop & re-scale
+                        filters.add("crop=w=iw*0.85:h=ih*0.85:x='max(0,min(iw*0.15,iw*${middle.targetX}-iw*0.425))':y='max(0,min(ih*0.15,ih*${middle.targetY}-ih*0.425))',scale=iw*1.176:ih*1.176")
+                    }
+                    "point_track" -> {
+                        filters.add("drawbox=x=$boxX:y=$boxY:w=12:h=12:color=red@0.9:t=fill")
+                        filters.add("drawtext=text='[PT (${String.format("%.2f", middle.targetX)}, ${String.format("%.2f", middle.targetY)})]':x=$boxX+16:y=$boxY:fontsize=18:fontcolor=white")
+                    }
+                    else -> {
+                        // Full HUD Callout Reticle
+                        filters.add("drawbox=x=$boxX:y=$boxY:w=$boxW:h=$boxH:color=white@0.9:t=2")
+                        filters.add("drawtext=text='[${middle.hudTitle}]':x=$boxX:y=($boxY-24):fontsize=20:fontcolor=white")
+                        if (middle.hudSubtitle.isNotBlank()) {
+                            filters.add("drawtext=text='${middle.hudSubtitle}':x=$boxX:y=($boxY+$boxH+6):fontsize=14:fontcolor=white@0.8")
+                        }
+                    }
+                }
             }
             is MiddleParameters.SpeedRamp -> {
                 val mult = 1.0f / middle.maxSpeedMultiplier.coerceAtLeast(0.2f)
@@ -72,10 +90,19 @@ object FfmpegProcessBridge {
                 filters.add("unsharp=5:5:0.8:5:5:0.0")
             }
             is MiddleParameters.Rotoscope -> {
-                if (middle.preset == "neon_saber") {
-                    filters.add("edgedetect=low=0.1:high=0.4,negate")
-                } else {
-                    filters.add("drawtext=text='${middle.textContent}':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=64:fontcolor=white@0.9")
+                when (middle.preset) {
+                    "neon_saber" -> {
+                        filters.add("edgedetect=low=0.1:high=0.35,negate,eq=contrast=1.4:saturation=1.5")
+                    }
+                    "cyberpunk_glow" -> {
+                        filters.add("edgedetect=low=0.12:high=0.32,negate,colorbalance=rs=0.15:gs=-0.05:bs=0.30")
+                    }
+                    "silhouette" -> {
+                        filters.add("edgedetect=low=0.1:high=0.4,negate,eq=contrast=2.0:brightness=-0.3")
+                    }
+                    else -> {
+                        filters.add("drawtext=text='${middle.textContent}':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=72:fontcolor=white@0.92")
+                    }
                 }
             }
         }

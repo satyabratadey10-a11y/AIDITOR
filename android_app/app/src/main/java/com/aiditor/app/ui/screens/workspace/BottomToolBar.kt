@@ -40,6 +40,7 @@ fun BottomToolBar(
     onTune: () -> Unit,
     onSpeed: () -> Unit,
     onTrack: () -> Unit,
+    onRotoscope: () -> Unit = {},
     onClear: () -> Unit,
     activeTool: ToolType? = null,
     isOpticalFlowActive: Boolean = false,
@@ -155,7 +156,15 @@ fun BottomToolBar(
                 isHighlighted = activeTool == ToolType.SPEED_RAMP
             )
 
-            // 9. Track / Stabilize Mode
+            // 9. Cutout / Rotoscope
+            ToolItem(
+                iconRes = R.drawable.ic_rotoscope,
+                title = "Cutout",
+                onClick = onRotoscope,
+                isHighlighted = activeTool == ToolType.ROTOSCOPE
+            )
+
+            // 10. Track / Stabilize Mode
             ToolItem(
                 iconRes = R.drawable.ic_motion_track,
                 title = if (trackingMode != ActiveTrackingMode.NONE) "Tracking" else "Track",

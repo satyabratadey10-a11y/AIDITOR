@@ -547,6 +547,19 @@ class WorkspaceViewModel(
                     val grade = mid as? MiddleParameters.ColorGrade ?: MiddleParameters.ColorGrade()
                     clip.copy(colorGrade = grade)
                 }
+                ToolType.MOTION_TRACKING -> {
+                    val motion = mid as? MiddleParameters.MotionTracking ?: MiddleParameters.MotionTracking()
+                    val nextTracking = if (motion.isTargetLockActive || motion.trackMode == "target_lock") {
+                        ActiveTrackingMode.MOTION_STABILIZATION
+                    } else {
+                        ActiveTrackingMode.MOTION_TRACKING
+                    }
+                    _uiState.value = _uiState.value.copy(trackingMode = nextTracking)
+                    clip
+                }
+                ToolType.ROTOSCOPE -> {
+                    clip
+                }
                 else -> clip
             }
             currentClips[targetIdx] = updatedClip
@@ -730,6 +743,85 @@ class WorkspaceViewModel(
         val flowParams = _uiState.value.middleParams as? MiddleParameters.OpticalFlow ?: MiddleParameters.OpticalFlow()
         _uiState.value = _uiState.value.copy(
             middleParams = flowParams.copy(
+                isRendering = false,
+                renderProgress = 0f,
+                renderStatusMessage = "Cancelled"
+            )
+        )
+    }
+
+    private var rotoscopeJob: Job? = null
+
+    /**
+     * Triggers asynchronous on-device Rotoscope AI cutout rendering and background caching.
+     * Streams progress (0-100%) to the UI state.
+     */
+    fun renderRotoscope() {
+        val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
+        val source = selClip?.sourcePath?.ifBlank { _uiState.value.inputParams.sourcePath }
+            ?: _uiState.value.inputParams.sourcePath
+        val rotoParams = _uiState.value.middleParams as? MiddleParameters.Rotoscope ?: MiddleParameters.Rotoscope()
+
+        rotoscopeJob?.cancel()
+        rotoscopeJob = viewModelScope.launch(Dispatchers.IO) {
+            _uiState.value = _uiState.value.copy(
+                middleParams = rotoParams.copy(
+                    isRendering = true,
+                    renderProgress = 0.05f,
+                    renderStatusMessage = "Extracting temporal matte..."
+                )
+            )
+
+            editingRepository.renderRotoscopeProgress(
+                sourcePath = source,
+                preset = rotoParams.preset,
+                neonColor = rotoParams.neonColor,
+                outlineWidth = rotoParams.outlineWidth,
+                glowIntensity = rotoParams.glowIntensity,
+                textContent = rotoParams.textContent,
+                inSec = selClip?.inPointSeconds ?: 0.0,
+                outSec = selClip?.outPointSeconds ?: 10.0
+            ).collect { job ->
+                when (job.status) {
+                    ExportStatus.COMPLETED -> {
+                        val cachedMask = job.outputPath
+                        _uiState.value = _uiState.value.copy(
+                            middleParams = rotoParams.copy(
+                                isRendering = false,
+                                renderProgress = 1.0f,
+                                renderStatusMessage = "✓ Cutout Cached Successfully!",
+                                cachedMaskUri = cachedMask
+                            )
+                        )
+                    }
+                    ExportStatus.FAILED -> {
+                        _uiState.value = _uiState.value.copy(
+                            middleParams = rotoParams.copy(
+                                isRendering = false,
+                                renderStatusMessage = job.message.ifEmpty { "Rotoscope failed" }
+                            )
+                        )
+                    }
+                    else -> {
+                        _uiState.value = _uiState.value.copy(
+                            middleParams = rotoParams.copy(
+                                isRendering = true,
+                                renderProgress = (job.progressPercentage / 100f).coerceIn(0f, 1f),
+                                renderStatusMessage = job.message
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun cancelRotoscope() {
+        rotoscopeJob?.cancel()
+        rotoscopeJob = null
+        val rotoParams = _uiState.value.middleParams as? MiddleParameters.Rotoscope ?: MiddleParameters.Rotoscope()
+        _uiState.value = _uiState.value.copy(
+            middleParams = rotoParams.copy(
                 isRendering = false,
                 renderProgress = 0f,
                 renderStatusMessage = "Cancelled"

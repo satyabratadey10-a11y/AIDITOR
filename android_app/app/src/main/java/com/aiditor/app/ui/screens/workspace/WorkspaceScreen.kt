@@ -100,6 +100,8 @@ fun WorkspaceScreen(
                         onApplyToTimeline = { viewModel.applyCurrentToolToTimeline() },
                         onRenderOpticalFlow = { viewModel.renderOpticalFlow() },
                         onCancelOpticalFlow = { viewModel.cancelOpticalFlow() },
+                        onRenderRotoscope = { viewModel.renderRotoscope() },
+                        onCancelRotoscope = { viewModel.cancelRotoscope() },
                         modifier = Modifier.heightIn(max = 350.dp)
                     )
                 }
@@ -130,14 +132,10 @@ fun WorkspaceScreen(
                         viewModel.selectTool(ToolType.SPEED_RAMP)
                     },
                     onTrack = {
-                        // Cycles through Motion Tracking -> Stabilization -> Face Tracking -> None
-                        val nextMode = when (uiState.trackingMode) {
-                            ActiveTrackingMode.NONE -> ActiveTrackingMode.MOTION_TRACKING
-                            ActiveTrackingMode.MOTION_TRACKING -> ActiveTrackingMode.MOTION_STABILIZATION
-                            ActiveTrackingMode.MOTION_STABILIZATION -> ActiveTrackingMode.FACE_TRACKING
-                            ActiveTrackingMode.FACE_TRACKING -> ActiveTrackingMode.NONE
-                        }
-                        viewModel.setTrackingMode(nextMode)
+                        viewModel.selectTool(ToolType.MOTION_TRACKING)
+                    },
+                    onRotoscope = {
+                        viewModel.selectTool(ToolType.ROTOSCOPE)
                     },
                     onClear = {
                         viewModel.clearActiveTracking()

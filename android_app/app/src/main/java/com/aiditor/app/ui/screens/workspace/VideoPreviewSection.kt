@@ -358,26 +358,116 @@ fun VideoPreviewSection(
                     }
 
                     ActiveTrackingMode.MOTION_TRACKING -> {
-                        val cx = w * 0.5f
-                        val cy = h * 0.55f
-                        val boxSize = 80f
+                        val motionParams = middleParams as? MiddleParameters.MotionTracking
+                        val cx = if (motionParams != null) w * motionParams.targetX else w * 0.5f
+                        val cy = if (motionParams != null) h * motionParams.targetY else h * 0.55f
+                        val bw = if (motionParams != null) w * motionParams.boxWidth else 80f
+                        val bh = if (motionParams != null) h * motionParams.boxHeight else 80f
 
-                        drawRect(
-                            color = Color.White,
-                            topLeft = Offset(cx - boxSize / 2, cy - boxSize / 2),
-                            size = Size(boxSize, boxSize),
-                            style = Stroke(width = 3.5f)
-                        )
-
-                        val inner = 24f
+                        val left = cx - bw / 2
+                        val right = cx + bw / 2
+                        val top = cy - bh / 2
+                        val bottom = cy + bh / 2
+                        val cornerLen = (bw * 0.25f).coerceIn(12f, 30f)
                         val greenColor = Color(0xFF00E676)
-                        drawLine(greenColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 3f)
-                        drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 3f)
+                        val strokeW = 4f
 
-                        drawCircle(color = greenColor, radius = 4f, center = Offset(cx, cy))
+                        // Corner Reticle Brackets [ ]
+                        drawLine(greenColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
+                        drawLine(greenColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)
+                        drawLine(greenColor, Offset(right, top), Offset(right - cornerLen, top), strokeW)
+                        drawLine(greenColor, Offset(right, top), Offset(right, top + cornerLen), strokeW)
+                        drawLine(greenColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
+                        drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
+                        drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
+                        drawLine(greenColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
+
+                        // Center Crosshair
+                        val inner = 16f
+                        drawLine(greenColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 2.5f)
+                        drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 2.5f)
+                        drawCircle(color = Color.White, radius = 3.5f, center = Offset(cx, cy))
+
+                        // HUD Callout Leader Line & Title
+                        val calloutTitle = motionParams?.calloutTitle ?: "TARGET LOCKED"
+                        val calloutSub = motionParams?.calloutSubtitle ?: "60 FPS TRACK"
+                        val p1 = Offset(right, top)
+                        val p2 = Offset(right + 20f, top - 20f)
+                        val p3 = Offset(right + 85f, top - 20f)
+                        drawLine(greenColor, p1, p2, 2f)
+                        drawLine(greenColor, p2, p3, 2f)
+
+                        val textPaint = android.graphics.Paint().apply {
+                            color = android.graphics.Color.WHITE
+                            textSize = 20f
+                            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                            isAntiAlias = true
+                        }
+                        val subPaint = android.graphics.Paint().apply {
+                            color = android.graphics.Color.parseColor("#00E676")
+                            textSize = 15f
+                            typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.NORMAL)
+                            isAntiAlias = true
+                        }
+                        drawContext.canvas.nativeCanvas.drawText(calloutTitle, right + 24f, top - 25f, textPaint)
+                        drawContext.canvas.nativeCanvas.drawText(calloutSub, right + 24f, top - 6f, subPaint)
                     }
 
-                    ActiveTrackingMode.NONE -> {}
+                    ActiveTrackingMode.NONE -> {
+                        // If user has MotionTracking inspector open without global mode
+                        if (activeTool == ToolType.MOTION_TRACKING && middleParams is MiddleParameters.MotionTracking) {
+                            val cx = w * middleParams.targetX
+                            val cy = h * middleParams.targetY
+                            val bw = w * middleParams.boxWidth
+                            val bh = h * middleParams.boxHeight
+                            val greenColor = Color(0xFF00E676)
+                            drawRect(
+                                color = greenColor,
+                                topLeft = Offset(cx - bw / 2, cy - bh / 2),
+                                size = Size(bw, bh),
+                                style = Stroke(width = 2.5f)
+                            )
+                            drawCircle(color = greenColor, radius = 4f, center = Offset(cx, cy))
+                        }
+                    }
+                }
+
+                // Real-time Rotoscope Neon Glow Preview Overlay
+                if (activeTool == ToolType.ROTOSCOPE || (middleParams is MiddleParameters.Rotoscope && !middleParams.cachedMaskUri.isNullOrBlank())) {
+                    val roto = middleParams as? MiddleParameters.Rotoscope ?: MiddleParameters.Rotoscope()
+                    val neonColor = try {
+                        Color(android.graphics.Color.parseColor(roto.neonColor))
+                    } catch (e: Exception) {
+                        Color(0xFF00F0FF)
+                    }
+                    val cx = w * 0.5f
+                    val cy = h * 0.5f
+                    val rx = w * 0.22f
+                    val ry = h * 0.30f
+                    val baseW = roto.outlineWidth.coerceIn(1f, 12f)
+                    val glow = roto.glowIntensity.coerceIn(0.5f, 3.0f)
+
+                    // Outer Diffuse Bloom
+                    drawOval(
+                        color = neonColor.copy(alpha = 0.22f),
+                        topLeft = Offset(cx - rx, cy - ry),
+                        size = Size(rx * 2, ry * 2),
+                        style = Stroke(width = baseW * 3.5f * glow)
+                    )
+                    // Sharp Neon Stroke
+                    drawOval(
+                        color = neonColor,
+                        topLeft = Offset(cx - rx, cy - ry),
+                        size = Size(rx * 2, ry * 2),
+                        style = Stroke(width = baseW)
+                    )
+                    // Core White Spine
+                    drawOval(
+                        color = Color.White.copy(alpha = 0.85f),
+                        topLeft = Offset(cx - rx, cy - ry),
+                        size = Size(rx * 2, ry * 2),
+                        style = Stroke(width = (baseW * 0.4f).coerceAtLeast(1f))
+                    )
                 }
             }
 
@@ -439,6 +529,24 @@ fun VideoPreviewSection(
                     Text(
                         text = " • ${trackingMode.name.replace("_", " ")}",
                         color = Color(0xFF00E676),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                if (middleParams is MiddleParameters.Rotoscope && (!middleParams.cachedMaskUri.isNullOrBlank() || activeTool == ToolType.ROTOSCOPE)) {
+                    Text(
+                        text = " • ✂ ROTO ${middleParams.preset.uppercase().replace("_", " ")}",
+                        color = Color(0xFF00F0FF),
+                        fontSize = 9.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                if (middleParams is MiddleParameters.MotionTracking && activeTool == ToolType.MOTION_TRACKING) {
+                    Text(
+                        text = " • 🎯 ${middleParams.trackMode.uppercase().replace("_", " ")}",
+                        color = Color(0xFF39FF14),
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold

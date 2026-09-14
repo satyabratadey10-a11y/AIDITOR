@@ -43,7 +43,9 @@ sealed class ToolVisualizerData {
         val preset: String,
         val textContent: String,
         val neonColor: String,
-        val contourPoints: List<Point2D>
+        val contourPoints: List<Point2D>,
+        val outlineWidth: Float = 4.0f,
+        val glowIntensity: Float = 1.2f
     ) : ToolVisualizerData()
 }
 
@@ -71,7 +73,8 @@ data class TrackingKeyframe(
     val width: Float,
     val height: Float,
     val confidence: Float,
-    val status: String
+    val status: String,
+    val rotationDeg: Float = 0f
 )
 
 data class CurveSample(

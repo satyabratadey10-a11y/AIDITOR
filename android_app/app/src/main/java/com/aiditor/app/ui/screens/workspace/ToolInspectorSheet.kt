@@ -48,6 +48,8 @@ fun ToolInspectorSheet(
     onApplyToTimeline: () -> Unit,
     onRenderOpticalFlow: () -> Unit = {},
     onCancelOpticalFlow: () -> Unit = {},
+    onRenderRotoscope: () -> Unit = {},
+    onCancelRotoscope: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -473,17 +475,131 @@ fun ToolInspectorSheet(
                 )
             }
             is MiddleParameters.MotionTracking -> {
+                // Tracking Algorithm & Stabilization Mode
+                Text("Tracking & Stabilization Mode", color = BwGreyLight, fontSize = 12.sp)
+                val trackModes = listOf(
+                    "hud_callout" to "HUD Callout",
+                    "target_lock" to "Target Lock (Stabilize)",
+                    "point_track" to "Point Track"
+                )
+                val modeScroll = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(modeScroll)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    trackModes.forEach { (mode, label) ->
+                        val isSel = middleParams.trackMode == mode
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSel) Color.White else BwCardBackground)
+                                .border(1.dp, if (isSel) Color.White else Color(0xFF2E2E36), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    val isLock = (mode == "target_lock")
+                                    onUpdateMiddle(middleParams.copy(trackMode = mode, isTargetLockActive = isLock))
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                label,
+                                color = if (isSel) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Target Lock Toggle
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (middleParams.isTargetLockActive) Color(0xFF1B2E1D) else Color(0xFF1C1C20)
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, if (middleParams.isTargetLockActive) Color(0xFF4CAF50) else BwCardStroke, RoundedCornerShape(10.dp))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Target Lock Viewport Centering",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = if (middleParams.isTargetLockActive) "Locks subject to screen center (0.5, 0.5) with dynamic zoom" else "Free tracking bounding reticle",
+                                color = if (middleParams.isTargetLockActive) Color(0xFFA5D6A7) else BwGreyLight,
+                                fontSize = 10.sp
+                            )
+                        }
+                        Switch(
+                            checked = middleParams.isTargetLockActive,
+                            onCheckedChange = { active ->
+                                onUpdateMiddle(middleParams.copy(
+                                    isTargetLockActive = active,
+                                    trackMode = if (active) "target_lock" else "hud_callout"
+                                ))
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF4CAF50),
+                                uncheckedThumbColor = BwGreyLight,
+                                uncheckedTrackColor = Color(0xFF333333)
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
                 BwSlider(
-                    label = "Target Coordinate X",
+                    label = "Target Center X",
                     value = middleParams.targetX,
                     onValueChange = { onUpdateMiddle(middleParams.copy(targetX = it)) },
-                    valueRange = 0.1f..0.9f
+                    valueRange = 0.05f..0.95f,
+                    formattedValue = String.format("%.2f", middleParams.targetX)
                 )
                 BwSlider(
-                    label = "Target Coordinate Y",
+                    label = "Target Center Y",
                     value = middleParams.targetY,
                     onValueChange = { onUpdateMiddle(middleParams.copy(targetY = it)) },
-                    valueRange = 0.1f..0.9f
+                    valueRange = 0.05f..0.95f,
+                    formattedValue = String.format("%.2f", middleParams.targetY)
+                )
+                BwSlider(
+                    label = "Reticle Width",
+                    value = middleParams.boxWidth,
+                    onValueChange = { onUpdateMiddle(middleParams.copy(boxWidth = it)) },
+                    valueRange = 0.05f..0.5f,
+                    formattedValue = String.format("%.2f", middleParams.boxWidth)
+                )
+                BwSlider(
+                    label = "Reticle Height",
+                    value = middleParams.boxHeight,
+                    onValueChange = { onUpdateMiddle(middleParams.copy(boxHeight = it)) },
+                    valueRange = 0.05f..0.5f,
+                    formattedValue = String.format("%.2f", middleParams.boxHeight)
+                )
+                BwSlider(
+                    label = "Kalman Smooth Factor",
+                    value = middleParams.smoothFactor,
+                    onValueChange = { onUpdateMiddle(middleParams.copy(smoothFactor = it)) },
+                    valueRange = 0.1f..0.99f,
+                    formattedValue = String.format("%.2f", middleParams.smoothFactor)
                 )
             }
             is MiddleParameters.SpeedRamp -> {
@@ -626,20 +742,232 @@ fun ToolInspectorSheet(
                 )
             }
             is MiddleParameters.Rotoscope -> {
-                Text("Rotoscope Preset", color = BwGreyLight, fontSize = 12.sp)
-                val presets = listOf("behind_text", "neon_saber", "dual_tone")
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(vertical = 4.dp)) {
-                    presets.forEach { p ->
+                Text("AI Cutout & FX Preset", color = BwGreyLight, fontSize = 12.sp)
+                val presets = listOf(
+                    "neon_saber" to "Neon Saber",
+                    "cyberpunk_glow" to "Cyberpunk",
+                    "behind_text" to "Behind Text",
+                    "silhouette" to "Silhouette"
+                )
+                val presetScroll = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(presetScroll)
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    presets.forEach { (p, label) ->
                         val isSel = middleParams.preset == p
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSel) BwWhite else BwCardBackground)
+                                .background(if (isSel) Color.White else BwCardBackground)
+                                .border(1.dp, if (isSel) Color.White else Color(0xFF2E2E36), RoundedCornerShape(8.dp))
                                 .clickable { onUpdateMiddle(middleParams.copy(preset = p)) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text(p.replace("_", " "), color = if (isSel) BwBlack else BwWhite, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                label,
+                                color = if (isSel) Color.Black else Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                // Neon Color Palette
+                Text("Neon Glow Color", color = BwGreyLight, fontSize = 12.sp)
+                val neonPalette = listOf(
+                    "#00F0FF" to "Cyan",
+                    "#FF007F" to "Pink",
+                    "#39FF14" to "Lime",
+                    "#FFE600" to "Yellow",
+                    "#FFFFFF" to "White"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    neonPalette.forEach { (hex, _) ->
+                        val isSel = middleParams.neonColor.equals(hex, ignoreCase = true)
+                        val colorVal = try {
+                            Color(android.graphics.Color.parseColor(hex))
+                        } catch (e: Exception) {
+                            Color.Cyan
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(colorVal)
+                                .border(
+                                    width = if (isSel) 3.dp else 1.dp,
+                                    color = if (isSel) Color.White else Color(0x66FFFFFF),
+                                    shape = CircleShape
+                                )
+                                .clickable { onUpdateMiddle(middleParams.copy(neonColor = hex)) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                BwSlider(
+                    label = "Neon Outline Width",
+                    value = middleParams.outlineWidth,
+                    onValueChange = { onUpdateMiddle(middleParams.copy(outlineWidth = it)) },
+                    valueRange = 1f..12f,
+                    formattedValue = String.format("%.1f px", middleParams.outlineWidth)
+                )
+                BwSlider(
+                    label = "Glow Bloom Intensity",
+                    value = middleParams.glowIntensity,
+                    onValueChange = { onUpdateMiddle(middleParams.copy(glowIntensity = it)) },
+                    valueRange = 0.5f..3.0f,
+                    formattedValue = String.format("%.2fx", middleParams.glowIntensity)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action Card: Render & Cache AI Cutout
+                if (middleParams.isRendering) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF161D17)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0xFF4CAF50), RoundedCornerShape(10.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "SYNTHESIZING TEMPORAL CUTOUT...",
+                                    color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "${(middleParams.renderProgress * 100).toInt()}%",
+                                    color = Color(0xFFA5D6A7),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LinearProgressIndicator(
+                                progress = { middleParams.renderProgress.coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color(0xFF4CAF50),
+                                trackColor = Color(0xFF2E3B2F)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = middleParams.renderStatusMessage,
+                                color = BwGreyLight,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = onCancelRotoscope,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3E1E1E)),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(32.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    text = "CANCEL RENDERING",
+                                    color = Color(0xFFFF8A80),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else if (!middleParams.cachedMaskUri.isNullOrBlank()) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF142416)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, Color(0xFF4CAF50), RoundedCornerShape(10.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "✓ CUTOUT CACHED & ACTIVE",
+                                    color = Color(0xFFA5D6A7),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "Matte overlay: ${middleParams.preset.uppercase()}",
+                                    color = BwGreyLight,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = onRenderRotoscope,
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    text = "RE-RENDER",
+                                    color = Color.Black,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = onRenderRotoscope,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White)
+                    ) {
+                        Text(
+                            text = "▶ RENDER & CACHE CUTOUT",
+                            color = Color.Black,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
                     }
                 }
             }

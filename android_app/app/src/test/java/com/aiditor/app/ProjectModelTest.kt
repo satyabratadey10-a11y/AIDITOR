@@ -307,4 +307,102 @@ class ProjectModelTest {
         assertEquals(100f, jobs.last().progressPercentage, 0.01f)
         assertTrue(jobs.last().outputPath.endsWith(".mp4"))
     }
+
+    @Test
+    fun testFfmpegCommandBuilderForMotionTrackingHud() {
+        val input = InputParameters(sourcePath = "input.mp4")
+        val middle = MiddleParameters.MotionTracking(
+            trackMode = "hud_callout",
+            targetX = 0.6f,
+            targetY = 0.4f,
+            boxWidth = 0.25f,
+            boxHeight = 0.25f,
+            calloutTitle = "TARGET LOCKED",
+            calloutSubtitle = "TRACKING 60FPS"
+        )
+        val output = OutputParameters(outputPath = "tracked.mp4", fps = 60)
+
+        val cmd = FfmpegProcessBridge.buildCommand(ToolType.MOTION_TRACKING, input, middle, output)
+        val cmdStr = cmd.joinToString(" ")
+
+        assertTrue(cmdStr.contains("ffmpeg"))
+        assertTrue(cmdStr.contains("drawbox"))
+        assertTrue(cmdStr.contains("drawtext"))
+        assertTrue(cmdStr.contains("TARGET LOCKED"))
+        assertTrue(cmdStr.contains("tracked.mp4"))
+    }
+
+    @Test
+    fun testFfmpegCommandBuilderForMotionTrackingTargetLock() {
+        val input = InputParameters(sourcePath = "input.mp4")
+        val middle = MiddleParameters.MotionTracking(
+            trackMode = "target_lock",
+            isTargetLockActive = true,
+            targetX = 0.7f,
+            targetY = 0.3f
+        )
+        val output = OutputParameters(outputPath = "stabilized.mp4", fps = 60)
+
+        val cmd = FfmpegProcessBridge.buildCommand(ToolType.MOTION_TRACKING, input, middle, output)
+        val cmdStr = cmd.joinToString(" ")
+
+        assertTrue(cmdStr.contains("crop="))
+        assertTrue(cmdStr.contains("scale="))
+        assertTrue(cmdStr.contains("stabilized.mp4"))
+    }
+
+    @Test
+    fun testFfmpegCommandBuilderForRotoscopeNeonSaber() {
+        val input = InputParameters(sourcePath = "input.mp4")
+        val middle = MiddleParameters.Rotoscope(
+            preset = "neon_saber",
+            neonColor = "#00F0FF",
+            outlineWidth = 4.0f,
+            glowIntensity = 1.5f
+        )
+        val output = OutputParameters(outputPath = "neon.mp4", fps = 30)
+
+        val cmd = FfmpegProcessBridge.buildCommand(ToolType.ROTOSCOPE, input, middle, output)
+        val cmdStr = cmd.joinToString(" ")
+
+        assertTrue(cmdStr.contains("colorkey"))
+        assertTrue(cmdStr.contains("gblur"))
+        assertTrue(cmdStr.contains("overlay"))
+        assertTrue(cmdStr.contains("neon.mp4"))
+    }
+
+    @Test
+    fun testFfmpegCommandBuilderForRotoscopeBehindText() {
+        val input = InputParameters(sourcePath = "input.mp4")
+        val middle = MiddleParameters.Rotoscope(
+            preset = "behind_text",
+            textContent = "CYBERPUNK"
+        )
+        val output = OutputParameters(outputPath = "behind_text.mp4", fps = 30)
+
+        val cmd = FfmpegProcessBridge.buildCommand(ToolType.ROTOSCOPE, input, middle, output)
+        val cmdStr = cmd.joinToString(" ")
+
+        assertTrue(cmdStr.contains("drawtext=text='CYBERPUNK'"))
+        assertTrue(cmdStr.contains("behind_text.mp4"))
+    }
+
+    @Test
+    fun testRotoscopeRenderProgressFlow() = runBlocking {
+        val repo = VideoEditingRepository()
+        val jobs = mutableListOf<ExportJob>()
+        repo.renderRotoscopeProgress(
+            sourcePath = "", // Triggers fallback standalone progressive pipeline
+            preset = "neon_saber",
+            neonColor = "#39FF14"
+        ).collect { job ->
+            jobs.add(job)
+        }
+
+        assertTrue(jobs.isNotEmpty())
+        assertEquals(ExportStatus.INITIALIZING, jobs.first().status)
+        assertEquals(ExportStatus.COMPLETED, jobs.last().status)
+        assertEquals(100f, jobs.last().progressPercentage, 0.01f)
+        assertTrue(jobs.last().outputPath.contains("roto_neon_saber"))
+    }
 }

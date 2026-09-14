@@ -42,12 +42,17 @@ sealed class MiddleParameters {
     ) : MiddleParameters()
 
     data class MotionTracking(
-        val trackingMode: String = "hud_callout", // "hud_callout", "point_track", "face_lock"
+        val trackingMode: String = "hud_callout", // "hud_callout", "target_lock", "point_track", "face_lock"
         val targetX: Float = 0.5f,
         val targetY: Float = 0.5f,
+        val boxWidth: Float = 0.16f,
+        val boxHeight: Float = 0.14f,
         val hudTitle: String = "TARGET LOCKED",
         val hudSubtitle: String = "TRACKING ACTIVE",
-        val hudColor: String = "0xFFFFFF"
+        val hudColor: String = "0xFFFFFF",
+        val smoothFactor: Float = 0.7f,
+        val isTargetLockActive: Boolean = false,
+        val cornerPins: List<Point2D> = emptyList()
     ) : MiddleParameters()
 
     data class SpeedRamp(
@@ -73,10 +78,16 @@ sealed class MiddleParameters {
     ) : MiddleParameters()
 
     data class Rotoscope(
-        val preset: String = "behind_text", // "behind_text", "dual_tone", "neon_saber"
+        val preset: String = "neon_saber", // "neon_saber", "cyberpunk_glow", "behind_text", "silhouette", "cutout_only"
         val textContent: String = "AIDITOR",
-        val neonColor: String = "white",
-        val maskFeather: Float = 3.0f
+        val neonColor: String = "#00F0FF", // Cyan (#00F0FF), Pink (#FF007F), Green (#39FF14), Gold (#FFE600), White (#FFFFFF)
+        val outlineWidth: Float = 4.0f,
+        val glowIntensity: Float = 1.2f,
+        val maskFeather: Float = 3.0f,
+        val cachedMaskUri: String? = null,
+        val isRendering: Boolean = false,
+        val renderProgress: Float = 0f,
+        val renderStatusMessage: String = ""
     ) : MiddleParameters()
 }
 

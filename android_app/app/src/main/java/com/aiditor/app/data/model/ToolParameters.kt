@@ -53,7 +53,11 @@ sealed class MiddleParameters {
         val smoothFactor: Float = 0.7f,
         val isTargetLockActive: Boolean = false,
         val cornerPins: List<Point2D> = emptyList()
-    ) : MiddleParameters()
+    ) : MiddleParameters() {
+        val trackMode: String get() = trackingMode
+        val calloutTitle: String get() = hudTitle
+        val calloutSubtitle: String get() = hudSubtitle
+    }
 
     data class SpeedRamp(
         val preset: String = "hero_moment", // "hero_moment", "bullet_time", "montage", "flash_in", "flash_out", "custom", "linear"

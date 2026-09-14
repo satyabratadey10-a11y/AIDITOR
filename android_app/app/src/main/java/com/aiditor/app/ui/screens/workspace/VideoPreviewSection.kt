@@ -389,8 +389,8 @@ fun VideoPreviewSection(
                         drawCircle(color = Color.White, radius = 3.5f, center = Offset(cx, cy))
 
                         // HUD Callout Leader Line & Title
-                        val calloutTitle = motionParams?.calloutTitle ?: "TARGET LOCKED"
-                        val calloutSub = motionParams?.calloutSubtitle ?: "60 FPS TRACK"
+                        val calloutTitle = motionParams?.hudTitle ?: "TARGET LOCKED"
+                        val calloutSub = motionParams?.hudSubtitle ?: "60 FPS TRACK"
                         val p1 = Offset(right, top)
                         val p2 = Offset(right + 20f, top - 20f)
                         val p3 = Offset(right + 85f, top - 20f)
@@ -545,7 +545,7 @@ fun VideoPreviewSection(
                 }
                 if (middleParams is MiddleParameters.MotionTracking && activeTool == ToolType.MOTION_TRACKING) {
                     Text(
-                        text = " • 🎯 ${middleParams.trackMode.uppercase().replace("_", " ")}",
+                        text = " • 🎯 ${middleParams.trackingMode.uppercase().replace("_", " ")}",
                         color = Color(0xFF39FF14),
                         fontSize = 9.sp,
                         fontFamily = FontFamily.Monospace,

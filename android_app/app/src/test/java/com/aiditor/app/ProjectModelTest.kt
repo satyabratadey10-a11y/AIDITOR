@@ -312,13 +312,13 @@ class ProjectModelTest {
     fun testFfmpegCommandBuilderForMotionTrackingHud() {
         val input = InputParameters(sourcePath = "input.mp4")
         val middle = MiddleParameters.MotionTracking(
-            trackMode = "hud_callout",
+            trackingMode = "hud_callout",
             targetX = 0.6f,
             targetY = 0.4f,
             boxWidth = 0.25f,
             boxHeight = 0.25f,
-            calloutTitle = "TARGET LOCKED",
-            calloutSubtitle = "TRACKING 60FPS"
+            hudTitle = "TARGET LOCKED",
+            hudSubtitle = "TRACKING 60FPS"
         )
         val output = OutputParameters(outputPath = "tracked.mp4", fps = 60)
 
@@ -336,7 +336,7 @@ class ProjectModelTest {
     fun testFfmpegCommandBuilderForMotionTrackingTargetLock() {
         val input = InputParameters(sourcePath = "input.mp4")
         val middle = MiddleParameters.MotionTracking(
-            trackMode = "target_lock",
+            trackingMode = "target_lock",
             isTargetLockActive = true,
             targetX = 0.7f,
             targetY = 0.3f

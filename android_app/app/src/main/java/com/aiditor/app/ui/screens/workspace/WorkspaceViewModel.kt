@@ -549,7 +549,7 @@ class WorkspaceViewModel(
                 }
                 ToolType.MOTION_TRACKING -> {
                     val motion = mid as? MiddleParameters.MotionTracking ?: MiddleParameters.MotionTracking()
-                    val nextTracking = if (motion.isTargetLockActive || motion.trackMode == "target_lock") {
+                    val nextTracking = if (motion.isTargetLockActive || motion.trackingMode == "target_lock") {
                         ActiveTrackingMode.MOTION_STABILIZATION
                     } else {
                         ActiveTrackingMode.MOTION_TRACKING

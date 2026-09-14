@@ -491,7 +491,7 @@ fun ToolInspectorSheet(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     trackModes.forEach { (mode, label) ->
-                        val isSel = middleParams.trackMode == mode
+                        val isSel = middleParams.trackingMode == mode
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -499,7 +499,7 @@ fun ToolInspectorSheet(
                                 .border(1.dp, if (isSel) Color.White else Color(0xFF2E2E36), RoundedCornerShape(8.dp))
                                 .clickable {
                                     val isLock = (mode == "target_lock")
-                                    onUpdateMiddle(middleParams.copy(trackMode = mode, isTargetLockActive = isLock))
+                                    onUpdateMiddle(middleParams.copy(trackingMode = mode, isTargetLockActive = isLock))
                                 }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
@@ -551,7 +551,7 @@ fun ToolInspectorSheet(
                             onCheckedChange = { active ->
                                 onUpdateMiddle(middleParams.copy(
                                     isTargetLockActive = active,
-                                    trackMode = if (active) "target_lock" else "hud_callout"
+                                    trackingMode = if (active) "target_lock" else "hud_callout"
                                 ))
                             },
                             colors = SwitchDefaults.colors(

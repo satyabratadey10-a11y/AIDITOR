@@ -183,19 +183,18 @@ class VideoEditingRepository(
         output: OutputParameters,
         durationSeconds: Double = 10.0
     ): Flow<ExportJob> {
-        val proc = processor
+        val proc = processor ?: (context ?: com.aiditor.app.AiditorApp.instance)?.let { OnDeviceVideoProcessor(it) }
         return if (proc != null) {
             proc.exportVideoProgress(toolType, input, middle, output, durationSeconds)
         } else {
+            // Only invoked during host JVM test execution where Android Application is null
             flow {
-                val jId = "job_standalone"
+                val jId = "job_test_${System.currentTimeMillis()}"
                 val start = System.currentTimeMillis()
-                emit(ExportJob(jobId = jId, status = ExportStatus.QUEUED, progressPercentage = 5f, message = "Starting standalone export...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
-                delay(80)
-                emit(ExportJob(jobId = jId, status = ExportStatus.PROCESSING, progressPercentage = 35f, message = "Processing video frames...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
-                delay(100)
-                emit(ExportJob(jobId = jId, status = ExportStatus.PROCESSING, progressPercentage = 75f, message = "Rendering audio & video...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
-                delay(80)
+                emit(ExportJob(jobId = jId, status = ExportStatus.QUEUED, progressPercentage = 5f, message = "Initializing test export...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
+                delay(20)
+                emit(ExportJob(jobId = jId, status = ExportStatus.PROCESSING, progressPercentage = 50f, message = "Processing video frames (test)...", outputPath = output.outputPath, startedAt = start, tool = toolType.title))
+                delay(20)
                 emit(ExportJob(jobId = jId, status = ExportStatus.COMPLETED, progressPercentage = 100f, message = "Video exported successfully!", outputPath = output.outputPath, startedAt = start, completedAt = System.currentTimeMillis(), tool = toolType.title))
             }
         }

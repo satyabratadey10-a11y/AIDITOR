@@ -618,21 +618,33 @@ class WorkspaceViewModel(
 
         exportJobSubscription?.cancel()
         exportJobSubscription = viewModelScope.launch {
-            val source = _uiState.value.project?.videoPath?.ifBlank { _uiState.value.inputParams.sourcePath }
+            val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
+            val source = selClip?.opticalFlowCachedUri?.takeIf { it.isNotBlank() && java.io.File(it).exists() }
+                ?: selClip?.sourcePath?.takeIf { it.isNotBlank() }
+                ?: _uiState.value.project?.videoPath?.takeIf { it.isNotBlank() }
                 ?: _uiState.value.inputParams.sourcePath
+
+            val inSec = selClip?.inPointSeconds ?: _uiState.value.inputParams.inPointSeconds
+            val outSec = selClip?.outPointSeconds ?: _uiState.value.inputParams.outPointSeconds ?: _uiState.value.totalDurationSeconds
+            val colorGrade = selClip?.colorGrade ?: (_uiState.value.middleParams as? MiddleParameters.ColorGrade)
 
             editingRepository.exportVideoProgress(
                 toolType = tool,
                 input = _uiState.value.inputParams.copy(
                     sourcePath = source,
+                    inPointSeconds = inSec,
+                    outPointSeconds = outSec,
                     muteAudio = _uiState.value.isAudioMuted
                 ),
-                middle = _uiState.value.middleParams,
+                middle = when (tool) {
+                    ToolType.COLOR_GRADE -> colorGrade ?: _uiState.value.middleParams
+                    else -> _uiState.value.middleParams
+                },
                 output = _uiState.value.outputParams.copy(
                     resolution = settings.resolution,
                     fps = settings.fps
                 ),
-                durationSeconds = _uiState.value.totalDurationSeconds
+                durationSeconds = (outSec - inSec).coerceAtLeast(0.1)
             ).catch { e ->
                 _uiState.value = _uiState.value.copy(
                     activeExportJob = ExportJob(

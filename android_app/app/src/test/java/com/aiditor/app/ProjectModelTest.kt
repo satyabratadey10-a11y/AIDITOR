@@ -365,9 +365,8 @@ class ProjectModelTest {
         val cmd = FfmpegProcessBridge.buildCommand(ToolType.ROTOSCOPE, input, middle, output)
         val cmdStr = cmd.joinToString(" ")
 
-        assertTrue(cmdStr.contains("colorkey"))
-        assertTrue(cmdStr.contains("gblur"))
-        assertTrue(cmdStr.contains("overlay"))
+        assertTrue(cmdStr.contains("edgedetect"))
+        assertTrue(cmdStr.contains("negate"))
         assertTrue(cmdStr.contains("neon.mp4"))
     }
 

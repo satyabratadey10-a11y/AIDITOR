@@ -78,26 +78,40 @@ fun VideoPreviewSection(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    val exoPlayer = remember {
+        try {
+            LowMemoryExoPlayerHelper.createLowMemoryPlayer(context).apply {
+                repeatMode = Player.REPEAT_MODE_ALL
+                volume = if (isAudioMuted) 0f else 1f
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
-    DisposableEffect(videoPath) {
+    DisposableEffect(Unit) {
+        onDispose {
+            try {
+                exoPlayer?.stop()
+                exoPlayer?.release()
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Switch media item dynamically without destroying hardware decoder and surface
+    LaunchedEffect(videoPath) {
+        val player = exoPlayer ?: return@LaunchedEffect
         if (!videoPath.isNullOrBlank()) {
             try {
-                val player = LowMemoryExoPlayerHelper.createLowMemoryPlayer(context).apply {
-                    val mediaItem = LowMemoryExoPlayerHelper.buildMediaItem(videoPath)
-                    setMediaItem(mediaItem)
-                    repeatMode = Player.REPEAT_MODE_ALL
-                    volume = if (isAudioMuted) 0f else 1f
-                    prepare()
-                }
-                exoPlayer = player
-            } catch (_: Exception) {
-                exoPlayer = null
-            }
-        }
-        onDispose {
-            exoPlayer?.release()
-            exoPlayer = null
+                val mediaItem = LowMemoryExoPlayerHelper.buildMediaItem(videoPath)
+                player.setMediaItem(mediaItem)
+                player.prepare()
+            } catch (_: Exception) {}
+        } else {
+            try {
+                player.stop()
+                player.clearMediaItems()
+            } catch (_: Exception) {}
         }
     }
 

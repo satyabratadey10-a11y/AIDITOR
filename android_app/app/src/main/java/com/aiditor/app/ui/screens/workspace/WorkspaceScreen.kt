@@ -59,11 +59,22 @@ fun WorkspaceScreen(
         }
     }
 
-    // Add image/overlay launcher
-    val addImageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        viewModel.addStickerOverlay(OverlayType.SKULL_STICKER)
+    // Multi-video import launcher (supports picking multiple videos)
+    val multiVideoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.addMediaClips(uris.map { it.toString() }, isImage = false)
+        }
+    }
+
+    // Add image launcher (treats picked image as a 2-second static video clip)
+    val addImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.addMediaClips(uris.map { it.toString() }, isImage = true)
+        }
     }
 
     Scaffold(
@@ -119,8 +130,15 @@ fun WorkspaceScreen(
                             )
                         } catch (_: Exception) {}
                     },
+                    onAddMedia = {
+                        try {
+                            multiVideoPickerLauncher.launch("video/*")
+                        } catch (_: Exception) {}
+                    },
                     onAddImage = {
-                        viewModel.addStickerOverlay(OverlayType.SKULL_STICKER)
+                        try {
+                            addImagePickerLauncher.launch("image/*")
+                        } catch (_: Exception) {}
                     },
                     onOpticalFlow = {
                         viewModel.selectTool(ToolType.OPTICAL_FLOW)
@@ -187,6 +205,9 @@ fun WorkspaceScreen(
                         middleParams = uiState.middleParams,
                         onPlayPauseToggle = { viewModel.togglePlayPause() },
                         onTimeUpdate = { viewModel.onPlaybackTimeUpdate(it) },
+                        onUpdateTrackingTarget = { x, y, w, h ->
+                            viewModel.updateTrackingTarget(x, y, w, h)
+                        },
                         videoPath = activeVideoPath
                     )
                 }

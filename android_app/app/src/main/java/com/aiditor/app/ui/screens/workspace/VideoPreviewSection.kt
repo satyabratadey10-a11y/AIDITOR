@@ -1,5 +1,7 @@
 package com.aiditor.app.ui.screens.workspace
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.DashPathEffect
@@ -14,6 +16,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -31,6 +35,7 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -50,7 +55,10 @@ import com.aiditor.app.data.model.MiddleParameters
 import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.theme.*
 import com.aiditor.app.util.LowMemoryExoPlayerHelper
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 /**
  * High-performance, Low-Memory Video Preview Section.
@@ -74,10 +82,40 @@ fun VideoPreviewSection(
     middleParams: MiddleParameters = MiddleParameters.OpticalFlow(),
     onPlayPauseToggle: () -> Unit,
     onTimeUpdate: (Double) -> Unit = {},
+    onUpdateTrackingTarget: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
     videoPath: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    val isImage = remember(videoPath) {
+        val p = videoPath?.lowercase() ?: ""
+        p.endsWith(".jpg") || p.endsWith(".jpeg") || p.endsWith(".png") || p.endsWith(".webp") ||
+        (p.startsWith("content://") && (p.contains("image") || p.contains("media/external/images")))
+    }
+    var staticImageBitmap by remember(videoPath) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(videoPath, isImage) {
+        if (isImage && !videoPath.isNullOrBlank()) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val bm = if (videoPath.startsWith("content://")) {
+                        context.contentResolver.openInputStream(Uri.parse(videoPath))?.use {
+                            BitmapFactory.decodeStream(it)
+                        }
+                    } else {
+                        BitmapFactory.decodeFile(videoPath)
+                    }
+                    staticImageBitmap = bm
+                } catch (_: Exception) {
+                    staticImageBitmap = null
+                }
+            }
+        } else {
+            staticImageBitmap = null
+        }
+    }
+
     val exoPlayer = remember {
         try {
             LowMemoryExoPlayerHelper.createLowMemoryPlayer(context).apply {
@@ -99,9 +137,9 @@ fun VideoPreviewSection(
     }
 
     // Switch media item dynamically without destroying hardware decoder and surface
-    LaunchedEffect(videoPath) {
+    LaunchedEffect(videoPath, isImage) {
         val player = exoPlayer ?: return@LaunchedEffect
-        if (!videoPath.isNullOrBlank()) {
+        if (!videoPath.isNullOrBlank() && !isImage) {
             try {
                 val mediaItem = LowMemoryExoPlayerHelper.buildMediaItem(videoPath)
                 player.setMediaItem(mediaItem)
@@ -190,6 +228,8 @@ fun VideoPreviewSection(
             AspectRatioMode.ORIGINAL -> Modifier.aspectRatio(16f / 9f)
         }
 
+        val isTrackingActive = activeTool == ToolType.MOTION_TRACKING || trackingMode == ActiveTrackingMode.MOTION_TRACKING
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -197,18 +237,71 @@ fun VideoPreviewSection(
                 .clip(RoundedCornerShape(8.dp))
                 .background(BwBlack)
                 .border(
-                    width = if (trackingMode != ActiveTrackingMode.NONE) 1.5.dp else 1.dp,
-                    color = if (trackingMode != ActiveTrackingMode.NONE) Color(0xFF2E7D32) else BwCardStroke,
+                    width = if (trackingMode != ActiveTrackingMode.NONE || isTrackingActive) 1.5.dp else 1.dp,
+                    color = if (trackingMode != ActiveTrackingMode.NONE || isTrackingActive) Color(0xFF2E7D32) else BwCardStroke,
                     shape = RoundedCornerShape(8.dp)
                 )
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onPlayPauseToggle() },
+                .pointerInput(isTrackingActive, middleParams) {
+                    if (isTrackingActive) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            if (w > 0f && h > 0f) {
+                                val motion = middleParams as? MiddleParameters.MotionTracking
+                                val curTargetX = motion?.targetX ?: 0.5f
+                                val curTargetY = motion?.targetY ?: 0.5f
+                                val curBoxW = motion?.boxWidth ?: 0.16f
+                                val curBoxH = motion?.boxHeight ?: 0.14f
+
+                                val newX = (curTargetX + (pan.x / w)).coerceIn(0.05f, 0.95f)
+                                val newY = (curTargetY + (pan.y / h)).coerceIn(0.05f, 0.95f)
+                                val newW = (curBoxW * zoom).coerceIn(0.04f, 0.7f)
+                                val newH = (curBoxH * zoom).coerceIn(0.04f, 0.7f)
+
+                                onUpdateTrackingTarget(newX, newY, newW, newH)
+                            }
+                        }
+                    }
+                }
+                .pointerInput(isTrackingActive, middleParams) {
+                    if (isTrackingActive) {
+                        detectTapGestures { tapOffset ->
+                            val w = size.width.toFloat()
+                            val h = size.height.toFloat()
+                            if (w > 0f && h > 0f) {
+                                val motion = middleParams as? MiddleParameters.MotionTracking
+                                val curBoxW = motion?.boxWidth ?: 0.16f
+                                val curBoxH = motion?.boxHeight ?: 0.14f
+                                val newX = (tapOffset.x / w).coerceIn(0.05f, 0.95f)
+                                val newY = (tapOffset.y / h).coerceIn(0.05f, 0.95f)
+                                onUpdateTrackingTarget(newX, newY, curBoxW, curBoxH)
+                            }
+                        }
+                    } else {
+                        detectTapGestures { onPlayPauseToggle() }
+                    }
+                },
             contentAlignment = Alignment.Center
         ) {
-            // Actual video surface via ExoPlayer TextureView
-            if (exoPlayer != null) {
+            // 1. Photo / Image Clip Static Surface
+            if (staticImageBitmap != null) {
+                val bm = staticImageBitmap!!
+                Canvas(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    val cm = if (middleParams is MiddleParameters.ColorGrade) buildColorMatrix(middleParams) else null
+                    val paint = Paint().apply {
+                        if (cm != null) {
+                            colorFilter = ColorMatrixColorFilter(cm)
+                        }
+                        isFilterBitmap = true
+                        isAntiAlias = true
+                    }
+                    val dstRect = android.graphics.Rect(0, 0, size.width.toInt(), size.height.toInt())
+                    val srcRect = android.graphics.Rect(0, 0, bm.width, bm.height)
+                    drawContext.canvas.nativeCanvas.drawBitmap(bm, srcRect, dstRect, paint)
+                }
+            } else if (exoPlayer != null) {
                 AndroidView(
                     factory = { ctx ->
                         val view = LayoutInflater.from(ctx).inflate(R.layout.view_player, null) as PlayerView
@@ -375,8 +468,8 @@ fun VideoPreviewSection(
                         val motionParams = middleParams as? MiddleParameters.MotionTracking
                         val cx = if (motionParams != null) w * motionParams.targetX else w * 0.5f
                         val cy = if (motionParams != null) h * motionParams.targetY else h * 0.55f
-                        val bw = if (motionParams != null) w * motionParams.boxWidth else 80f
-                        val bh = if (motionParams != null) h * motionParams.boxHeight else 80f
+                        val bw = if (motionParams != null) (w * motionParams.boxWidth).coerceAtLeast(40f) else 80f
+                        val bh = if (motionParams != null) (h * motionParams.boxHeight).coerceAtLeast(40f) else 80f
 
                         val left = cx - bw / 2
                         val right = cx + bw / 2
@@ -395,6 +488,17 @@ fun VideoPreviewSection(
                         drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
                         drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
                         drawLine(greenColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
+
+                        // 4 Interactive Corner Resize Handle Dots
+                        val handleRadius = 6f
+                        drawCircle(color = Color.White, radius = handleRadius, center = Offset(left, top))
+                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(left, top), style = Stroke(2f))
+                        drawCircle(color = Color.White, radius = handleRadius, center = Offset(right, top))
+                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(right, top), style = Stroke(2f))
+                        drawCircle(color = Color.White, radius = handleRadius, center = Offset(left, bottom))
+                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(left, bottom), style = Stroke(2f))
+                        drawCircle(color = Color.White, radius = handleRadius, center = Offset(right, bottom))
+                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(right, bottom), style = Stroke(2f))
 
                         // Center Crosshair
                         val inner = 16f
@@ -425,23 +529,60 @@ fun VideoPreviewSection(
                         }
                         drawContext.canvas.nativeCanvas.drawText(calloutTitle, right + 24f, top - 25f, textPaint)
                         drawContext.canvas.nativeCanvas.drawText(calloutSub, right + 24f, top - 6f, subPaint)
+
+                        // Sizing hint
+                        val hint = String.format(Locale.US, "%.0f%% x %.0f%% • PINCH / DRAG", (bw / w) * 100f, (bh / h) * 100f)
+                        drawContext.canvas.nativeCanvas.drawText(hint, left, bottom + 18f, subPaint)
                     }
 
                     ActiveTrackingMode.NONE -> {
-                        // If user has MotionTracking inspector open without global mode
                         if (activeTool == ToolType.MOTION_TRACKING && middleParams is MiddleParameters.MotionTracking) {
                             val cx = w * middleParams.targetX
                             val cy = h * middleParams.targetY
-                            val bw = w * middleParams.boxWidth
-                            val bh = h * middleParams.boxHeight
+                            val bw = (w * middleParams.boxWidth).coerceAtLeast(40f)
+                            val bh = (h * middleParams.boxHeight).coerceAtLeast(40f)
+                            val left = cx - bw / 2
+                            val right = cx + bw / 2
+                            val top = cy - bh / 2
+                            val bottom = cy + bh / 2
                             val greenColor = Color(0xFF00E676)
-                            drawRect(
-                                color = greenColor,
-                                topLeft = Offset(cx - bw / 2, cy - bh / 2),
-                                size = Size(bw, bh),
-                                style = Stroke(width = 2.5f)
-                            )
-                            drawCircle(color = greenColor, radius = 4f, center = Offset(cx, cy))
+                            val cornerLen = (bw * 0.25f).coerceIn(12f, 30f)
+                            val strokeW = 4f
+
+                            drawLine(greenColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
+                            drawLine(greenColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)
+                            drawLine(greenColor, Offset(right, top), Offset(right - cornerLen, top), strokeW)
+                            drawLine(greenColor, Offset(right, top), Offset(right, top + cornerLen), strokeW)
+                            drawLine(greenColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
+                            drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
+                            drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
+                            drawLine(greenColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
+
+                            // 4 Corner resize handle dots
+                            val handleRadius = 6f
+                            drawCircle(color = Color.White, radius = handleRadius, center = Offset(left, top))
+                            drawCircle(color = greenColor, radius = handleRadius, center = Offset(left, top), style = Stroke(2f))
+                            drawCircle(color = Color.White, radius = handleRadius, center = Offset(right, top))
+                            drawCircle(color = greenColor, radius = handleRadius, center = Offset(right, top), style = Stroke(2f))
+                            drawCircle(color = Color.White, radius = handleRadius, center = Offset(left, bottom))
+                            drawCircle(color = greenColor, radius = handleRadius, center = Offset(left, bottom), style = Stroke(2f))
+                            drawCircle(color = Color.White, radius = handleRadius, center = Offset(right, bottom))
+                            drawCircle(color = greenColor, radius = handleRadius, center = Offset(right, bottom), style = Stroke(2f))
+
+                            // Center crosshair
+                            val inner = 16f
+                            drawLine(greenColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 2.5f)
+                            drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 2.5f)
+                            drawCircle(color = Color.White, radius = 3.5f, center = Offset(cx, cy))
+
+                            val subPaint = android.graphics.Paint().apply {
+                                color = android.graphics.Color.parseColor("#00E676")
+                                textSize = 15f
+                                typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.NORMAL)
+                                isAntiAlias = true
+                            }
+                            val hint = String.format(Locale.US, "%.0f%% x %.0f%% • PINCH / DRAG", (bw / w) * 100f, (bh / h) * 100f)
+                            drawContext.canvas.nativeCanvas.drawText(hint, left, bottom + 18f, subPaint)
                         }
                     }
                 }

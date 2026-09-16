@@ -77,19 +77,24 @@ class WorkspaceViewModel(
                     inPointSeconds = 0.0,
                     outPointSeconds = project.durationSeconds.coerceAtLeast(10.0),
                     durationSeconds = project.durationSeconds.coerceAtLeast(10.0),
-                    isSelected = false // Starts in State 1 (Not Selected); user clicks to select (State 2)
+                    isSelected = false
                 )
             )
         }
 
-        // Only actual user-created overlays, zero dummy placeholders
         val initialOverlays = project.overlays
-        val initialSelectedClipId = initialClips.find { it.isSelected }?.id
+        val initialSelectedClipId = initialClips.find { it.isSelected }?.id ?: initialClips.firstOrNull()?.id
+        val selClip = initialClips.find { it.id == initialSelectedClipId }
+        val calcDuration = if (initialClips.isNotEmpty()) {
+            initialClips.sumOf { it.durationSeconds }.coerceAtLeast(0.5)
+        } else {
+            project.durationSeconds.coerceAtLeast(10.0)
+        }
 
         _uiState.value = _uiState.value.copy(
             project = project,
-            totalDurationSeconds = project.durationSeconds.coerceAtLeast(10.0),
-            currentTimeSeconds = 1.85,
+            totalDurationSeconds = calcDuration,
+            currentTimeSeconds = 0.0,
             markers = project.timelineMarkers,
             clips = initialClips,
             overlays = initialOverlays,
@@ -97,12 +102,37 @@ class WorkspaceViewModel(
             aspectRatio = project.aspectRatio,
             isAudioMuted = project.isAudioMuted,
             trackingMode = project.trackingMode,
+            middleParams = selClip?.colorGrade ?: MiddleParameters.ColorGrade(),
             inputParams = InputParameters(
-                sourcePath = project.videoPath,
-                inPointSeconds = 0.0,
-                outPointSeconds = project.durationSeconds
+                sourcePath = selClip?.sourcePath ?: project.videoPath,
+                inPointSeconds = selClip?.inPointSeconds ?: 0.0,
+                outPointSeconds = selClip?.outPointSeconds ?: calcDuration
             )
         )
+    }
+
+    fun persistCurrentProject() {
+        val currentProj = _uiState.value.project ?: return
+        val currentClips = _uiState.value.clips
+        val totalDur = if (currentClips.isNotEmpty()) {
+            currentClips.sumOf { it.durationSeconds }.coerceAtLeast(0.5)
+        } else {
+            _uiState.value.totalDurationSeconds
+        }
+        val updated = currentProj.copy(
+            clips = currentClips,
+            overlays = _uiState.value.overlays,
+            timelineMarkers = _uiState.value.markers,
+            aspectRatio = _uiState.value.aspectRatio,
+            isAudioMuted = _uiState.value.isAudioMuted,
+            trackingMode = _uiState.value.trackingMode,
+            durationSeconds = totalDur
+        )
+        _uiState.value = _uiState.value.copy(
+            project = updated,
+            totalDurationSeconds = totalDur
+        )
+        projectRepository.updateProject(updated)
     }
 
     private fun pushUndoState() {
@@ -294,6 +324,7 @@ class WorkspaceViewModel(
                 clips = currentClips,
                 selectedClipId = clipB.id
             )
+            persistCurrentProject()
         }
     }
 
@@ -311,6 +342,7 @@ class WorkspaceViewModel(
             clips = updated,
             selectedClipId = newSelection
         )
+        persistCurrentProject()
     }
 
     fun duplicateSelectedClip() {
@@ -334,6 +366,7 @@ class WorkspaceViewModel(
                 clips = currentClips,
                 selectedClipId = copy.id
             )
+            persistCurrentProject()
         }
     }
 
@@ -345,25 +378,101 @@ class WorkspaceViewModel(
             if (clip.id == selId) {
                 clip.copy(
                     inPointSeconds = playhead,
-                    durationSeconds = (clip.outPointSeconds - playhead).coerceAtLeast(0.1)
+                    durationSeconds = ((clip.outPointSeconds - playhead) / clip.speedMultiplier).coerceAtLeast(0.1)
                 )
             } else clip
         }
         _uiState.value = _uiState.value.copy(clips = updated)
+        persistCurrentProject()
     }
 
     fun trimClipBoundaries(clipId: String, newIn: Double, newOut: Double) {
         pushUndoState()
         val updated = _uiState.value.clips.map { clip ->
             if (clip.id == clipId) {
+                val validIn = newIn.coerceAtLeast(0.0)
+                val validOut = newOut.coerceAtLeast(validIn + 0.1)
+                val newDur = ((validOut - validIn) / clip.speedMultiplier).coerceAtLeast(0.1)
                 clip.copy(
-                    inPointSeconds = newIn.coerceAtLeast(0.0),
-                    outPointSeconds = newOut.coerceAtLeast(newIn + 0.1),
-                    durationSeconds = (newOut - newIn).coerceAtLeast(0.1)
+                    inPointSeconds = validIn,
+                    outPointSeconds = validOut,
+                    durationSeconds = newDur
                 )
             } else clip
         }
         _uiState.value = _uiState.value.copy(clips = updated)
+        persistCurrentProject()
+    }
+
+    /**
+     * Changes playback speed of the selected clip.
+     * Decreasing speed lengthens the clip duration on the timeline,
+     * increasing speed shortens the clip duration.
+     */
+    fun changeClipSpeed(multiplier: Float) {
+        pushUndoState()
+        val speed = multiplier.coerceIn(0.1f, 8.0f)
+        val selId = _uiState.value.selectedClipId
+        val updated = _uiState.value.clips.map { clip ->
+            if (clip.id == selId || (selId == null && clip.isSelected)) {
+                val baseSpan = (clip.outPointSeconds - clip.inPointSeconds).coerceAtLeast(0.1)
+                val newDuration = (baseSpan / speed).coerceAtLeast(0.1)
+                clip.copy(
+                    speedMultiplier = speed,
+                    durationSeconds = newDuration
+                )
+            } else clip
+        }
+        _uiState.value = _uiState.value.copy(clips = updated)
+        persistCurrentProject()
+    }
+
+    /**
+     * Imports multiple media clips (videos and/or images) at the timeline.
+     * When user chooses an image, the app strictly treats the image as a 2.0-second static video clip.
+     */
+    fun addMediaClips(uris: List<String>, isImage: Boolean = false) {
+        if (uris.isEmpty()) return
+        pushUndoState()
+        val currentClips = _uiState.value.clips.toMutableList()
+        var lastAddedId: String? = null
+        uris.forEachIndexed { index, uriStr ->
+            val newId = "clip_${System.currentTimeMillis()}_$index"
+            lastAddedId = newId
+            val title = if (isImage) "Photo ${currentClips.size + 1}" else "Clip ${currentClips.size + 1}"
+            val duration = if (isImage) 2.0 else 10.0 // 2-second static video clip for images
+            val clip = TimelineClip(
+                id = newId,
+                title = title,
+                sourcePath = uriStr,
+                inPointSeconds = 0.0,
+                outPointSeconds = duration,
+                durationSeconds = duration,
+                isSelected = false
+            )
+            currentClips.add(clip)
+        }
+        val finalClips = currentClips.map { it.copy(isSelected = it.id == lastAddedId) }
+        _uiState.value = _uiState.value.copy(
+            clips = finalClips,
+            selectedClipId = lastAddedId
+        )
+        persistCurrentProject()
+    }
+
+    /**
+     * Dynamically repositions and scales the motion tracking reticle from preview screen gestures.
+     */
+    fun updateTrackingTarget(targetX: Float, targetY: Float, boxW: Float, boxH: Float) {
+        val motion = (_uiState.value.middleParams as? MiddleParameters.MotionTracking)
+            ?: MiddleParameters.MotionTracking()
+        val updatedMotion = motion.copy(
+            targetX = targetX.coerceIn(0.05f, 0.95f),
+            targetY = targetY.coerceIn(0.05f, 0.95f),
+            boxWidth = boxW.coerceIn(0.04f, 0.8f),
+            boxHeight = boxH.coerceIn(0.04f, 0.8f)
+        )
+        _uiState.value = _uiState.value.copy(middleParams = updatedMotion)
     }
 
     fun replaceSelectedClip(newVideoPath: String) {
@@ -375,6 +484,7 @@ class WorkspaceViewModel(
             } else clip
         }
         _uiState.value = _uiState.value.copy(clips = updated)
+        persistCurrentProject()
     }
 
     fun addStickerOverlay(type: OverlayType) {
@@ -538,8 +648,11 @@ class WorkspaceViewModel(
                 }
                 ToolType.SPEED_RAMP -> {
                     val ramp = mid as? MiddleParameters.SpeedRamp ?: MiddleParameters.SpeedRamp()
+                    val baseSpan = (clip.outPointSeconds - clip.inPointSeconds).coerceAtLeast(0.1)
+                    val newDur = (baseSpan / ramp.maxSpeedMultiplier).coerceAtLeast(0.1)
                     clip.copy(
                         speedMultiplier = ramp.maxSpeedMultiplier,
+                        durationSeconds = newDur,
                         speedCurvePoints = ramp.curveControlPoints
                     )
                 }
@@ -564,6 +677,7 @@ class WorkspaceViewModel(
             }
             currentClips[targetIdx] = updatedClip
             _uiState.value = _uiState.value.copy(clips = currentClips)
+            persistCurrentProject()
         }
 
         closeToolInspector()
@@ -636,10 +750,7 @@ class WorkspaceViewModel(
                     outPointSeconds = outSec,
                     muteAudio = _uiState.value.isAudioMuted
                 ),
-                middle = when (tool) {
-                    ToolType.COLOR_GRADE -> colorGrade ?: _uiState.value.middleParams
-                    else -> _uiState.value.middleParams
-                },
+                middle = colorGrade ?: _uiState.value.middleParams,
                 output = _uiState.value.outputParams.copy(
                     resolution = settings.resolution,
                     fps = settings.fps

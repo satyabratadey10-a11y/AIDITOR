@@ -35,6 +35,7 @@ fun BottomToolBar(
     onDelete: () -> Unit,
     onDuplicate: () -> Unit,
     onReplace: () -> Unit,
+    onAddMedia: () -> Unit = {},
     onAddImage: () -> Unit,
     onOpticalFlow: () -> Unit,
     onTune: () -> Unit,
@@ -125,7 +126,14 @@ fun BottomToolBar(
                 onClick = onReplace
             )
 
-            // 5. Image / Overlay
+            // 5. Add Video (Multi-media import)
+            ToolItem(
+                iconRes = R.drawable.ic_add,
+                title = "+ Video",
+                onClick = onAddMedia
+            )
+
+            // 6. Image / Static 2-sec Clip
             ToolItem(
                 iconRes = R.drawable.ic_image_overlay,
                 title = "Image",

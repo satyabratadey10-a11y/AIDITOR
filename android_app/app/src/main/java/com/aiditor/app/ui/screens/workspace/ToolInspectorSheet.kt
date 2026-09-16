@@ -104,24 +104,7 @@ fun ToolInspectorSheet(
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        // 1. INPUT MODIFICATION PART
-        InputParametersSection(
-            inputParams = inputParams,
-            onUpdateInput = onUpdateInput
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 2. MIDDLE PROCESSING PART
-        Text(
-            text = "2. MIDDLE ALGORITHM PARAMETERS",
-            color = BwWhite,
-            fontSize = 11.sp,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-
+        // Tool-specific focused algorithm parameters
         when (middleParams) {
             is MiddleParameters.OpticalFlow -> {
                 OpticalFlowControlsSection(
@@ -165,20 +148,15 @@ fun ToolInspectorSheet(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
-
-        // 3. OUTPUT CONFIGURATION PART
-        OutputParametersSection(outputParams = outputParams)
-
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Action Buttons
+        // Action Button: DONE
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
         ) {
             BwButton(
-                text = "APPLY TO TIMELINE",
+                text = "DONE",
                 onClick = onApplyToTimeline,
                 iconRes = R.drawable.ic_check,
                 modifier = Modifier.fillMaxWidth()
@@ -234,43 +212,6 @@ private fun ToolVisualizerSection(
 }
 
 @Composable
-private fun InputParametersSection(
-    inputParams: InputParameters,
-    onUpdateInput: (InputParameters) -> Unit
-) {
-    Text(
-        text = "1. INPUT MODIFICATION",
-        color = BwWhite,
-        fontSize = 11.sp,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Bold
-    )
-    Spacer(modifier = Modifier.height(6.dp))
-    BwSlider(
-        label = "Trim In-Point (Seconds)",
-        value = inputParams.inPointSeconds.toFloat(),
-        onValueChange = { onUpdateInput(inputParams.copy(inPointSeconds = it.toDouble())) },
-        valueRange = 0f..10f,
-        formattedValue = String.format("%.2fs", inputParams.inPointSeconds)
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text("Mute Audio Stream", color = BwGreyLight, fontSize = 12.sp)
-        Switch(
-            checked = inputParams.muteAudio,
-            onCheckedChange = { onUpdateInput(inputParams.copy(muteAudio = it)) },
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = BwBlack,
-                checkedTrackColor = BwWhite,
-                uncheckedThumbColor = BwWhite,
-                uncheckedTrackColor = BwCardBackground
-            )
-        )
-    }
-}
 
 @Composable
 private fun OpticalFlowControlsSection(
@@ -704,8 +645,43 @@ private fun SpeedRampControlsSection(
     middleParams: MiddleParameters.SpeedRamp,
     onUpdateMiddle: (MiddleParameters) -> Unit
 ) {
+    Text("Quick Speed Presets", color = BwGreyLight, fontSize = 12.sp)
+    val speedPresets = listOf(0.2f, 0.5f, 1.0f, 2.0f, 4.0f)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        speedPresets.forEach { sp ->
+            val isSel = kotlin.math.abs(middleParams.maxSpeedMultiplier - sp) < 0.05f
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isSel) Color.White else Color(0xFF1E1E24))
+                    .border(1.dp, if (isSel) Color.White else Color(0xFF2E2E36), RoundedCornerShape(8.dp))
+                    .clickable {
+                        val updatedPts = middleParams.curveControlPoints.map { pt ->
+                            if (pt.speed > 1.0f || sp < 1.0f) pt.copy(speed = sp) else pt
+                        }
+                        onUpdateMiddle(middleParams.copy(maxSpeedMultiplier = sp, curveControlPoints = updatedPts))
+                    }
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "${sp}x",
+                    color = if (isSel) Color.Black else Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(4.dp))
     BwSlider(
-        label = "Peak Speed Multiplier",
+        label = "Custom Speed Multiplier",
         value = middleParams.maxSpeedMultiplier,
         onValueChange = { newMax ->
             val updatedPts = middleParams.curveControlPoints.map { pt ->
@@ -1083,22 +1059,3 @@ private fun RotoscopeControlsSection(
     }
 }
 
-@Composable
-private fun OutputParametersSection(outputParams: OutputParameters) {
-    Text(
-        text = "3. OUTPUT CONFIGURATION & RENDER",
-        color = BwWhite,
-        fontSize = 11.sp,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Bold
-    )
-    Spacer(modifier = Modifier.height(6.dp))
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Codec: ${outputParams.codec} • ${outputParams.resolution}", color = BwGreyLight, fontSize = 12.sp)
-        Text("CRF: ${outputParams.crf}", color = BwWhite, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
-    }
-}

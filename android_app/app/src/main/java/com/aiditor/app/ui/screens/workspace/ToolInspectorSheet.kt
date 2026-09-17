@@ -212,8 +212,6 @@ private fun ToolVisualizerSection(
 }
 
 @Composable
-
-@Composable
 private fun OpticalFlowControlsSection(
     middleParams: MiddleParameters.OpticalFlow,
     onUpdateMiddle: (MiddleParameters) -> Unit,

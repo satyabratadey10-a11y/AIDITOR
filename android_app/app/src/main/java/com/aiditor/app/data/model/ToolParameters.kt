@@ -52,7 +52,11 @@ sealed class MiddleParameters {
         val hudColor: String = "0xFFFFFF",
         val smoothFactor: Float = 0.7f,
         val isTargetLockActive: Boolean = false,
-        val cornerPins: List<Point2D> = emptyList()
+        val cornerPins: List<Point2D> = emptyList(),
+        val isTrackingRunning: Boolean = false,
+        val trackingProgress: Float = 0f,
+        val isTrackingDone: Boolean = false,
+        val trackingKeyframes: List<Point2D> = emptyList()
     ) : MiddleParameters() {
         val trackMode: String get() = trackingMode
         val calloutTitle: String get() = hudTitle

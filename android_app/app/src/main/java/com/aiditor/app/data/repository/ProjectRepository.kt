@@ -102,6 +102,7 @@ class ProjectRepository(
                     put("opticalFlowFps", clip.opticalFlowFps)
                     put("opticalFlowMode", clip.opticalFlowMode)
                     put("opticalFlowCachedUri", clip.opticalFlowCachedUri ?: "")
+                    put("isImage", clip.isImage)
 
                     // Color Grade
                     val cg = clip.colorGrade
@@ -242,7 +243,8 @@ class ProjectRepository(
                         isOpticalFlowEnabled = cObj.optBoolean("isOpticalFlowEnabled", false),
                         opticalFlowFps = cObj.optInt("opticalFlowFps", 60),
                         opticalFlowMode = cObj.optString("opticalFlowMode", "mci"),
-                        opticalFlowCachedUri = cachedUri
+                        opticalFlowCachedUri = cachedUri,
+                        isImage = cObj.optBoolean("isImage", false)
                     )
                 )
             }

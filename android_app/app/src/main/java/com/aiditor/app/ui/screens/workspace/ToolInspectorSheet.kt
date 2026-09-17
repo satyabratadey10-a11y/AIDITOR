@@ -48,6 +48,7 @@ fun ToolInspectorSheet(
     onCancelOpticalFlow: () -> Unit = {},
     onRenderRotoscope: () -> Unit = {},
     onCancelRotoscope: () -> Unit = {},
+    onStartMotionTracking: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -123,7 +124,8 @@ fun ToolInspectorSheet(
             is MiddleParameters.MotionTracking -> {
                 MotionTrackingControlsSection(
                     middleParams = middleParams,
-                    onUpdateMiddle = onUpdateMiddle
+                    onUpdateMiddle = onUpdateMiddle,
+                    onStartMotionTracking = onStartMotionTracking
                 )
             }
             is MiddleParameters.SpeedRamp -> {
@@ -510,8 +512,84 @@ private fun BeatSyncControlsSection(
 @Composable
 private fun MotionTrackingControlsSection(
     middleParams: MiddleParameters.MotionTracking,
-    onUpdateMiddle: (MiddleParameters) -> Unit
+    onUpdateMiddle: (MiddleParameters) -> Unit,
+    onStartMotionTracking: () -> Unit = {}
 ) {
+    // Tracking Action Status & Trigger Card
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = if (middleParams.isTrackingDone) Color(0xFF142E1F) else Color(0xFF1C1C20)
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(
+                1.dp,
+                if (middleParams.isTrackingDone) Color(0xFF2E7D32) else BwCardStroke,
+                RoundedCornerShape(12.dp)
+            )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "MOTION TRACKER EXECUTION",
+                        color = BwWhite,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                    Text(
+                        text = if (middleParams.isTrackingRunning) "Tracking frames & generating keyframes..."
+                        else if (middleParams.isTrackingDone) "Active on Track 2 • HUD & Target Synced"
+                        else "Position green reticle on preview to lock subject",
+                        color = if (middleParams.isTrackingDone) Color(0xFFA5D6A7) else BwGreyLight,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
+            if (middleParams.isTrackingRunning) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LinearProgressIndicator(
+                        progress = { middleParams.trackingProgress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = Color(0xFF00E676),
+                        trackColor = Color(0xFF333333)
+                    )
+                    Text(
+                        text = "PROGRESS: ${(middleParams.trackingProgress * 100).toInt()}%",
+                        color = Color(0xFF00E676),
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                BwButton(
+                    text = if (middleParams.isTrackingDone) "RE-RUN MOTION TRACKING" else "START MOTION TRACKING",
+                    onClick = onStartMotionTracking,
+                    iconRes = R.drawable.ic_play,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
     Text("Tracking & Stabilization Mode", color = BwGreyLight, fontSize = 12.sp)
     val trackModes = listOf(
         "hud_callout" to "HUD Callout",

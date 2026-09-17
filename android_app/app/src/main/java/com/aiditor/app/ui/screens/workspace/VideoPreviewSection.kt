@@ -15,7 +15,8 @@ import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -52,6 +53,8 @@ import com.aiditor.app.data.model.ActiveTrackingMode
 import com.aiditor.app.data.model.AspectRatioMode
 import com.aiditor.app.data.model.CurveControlPoint
 import com.aiditor.app.data.model.MiddleParameters
+import com.aiditor.app.data.model.TimelineClip
+import com.aiditor.app.data.model.TimelineOverlay
 import com.aiditor.app.data.model.ToolType
 import com.aiditor.app.ui.theme.*
 import com.aiditor.app.util.LowMemoryExoPlayerHelper
@@ -84,27 +87,59 @@ fun VideoPreviewSection(
     onTimeUpdate: (Double) -> Unit = {},
     onUpdateTrackingTarget: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
     videoPath: String? = null,
+    clips: List<TimelineClip> = emptyList(),
+    overlays: List<TimelineOverlay> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    val isImage = remember(videoPath) {
-        val p = videoPath?.lowercase() ?: ""
-        p.endsWith(".jpg") || p.endsWith(".jpeg") || p.endsWith(".png") || p.endsWith(".webp") ||
-        (p.startsWith("content://") && (p.contains("image") || p.contains("media/external/images")))
+    // Active Clip determination based on currentTimeSeconds across the entire timeline
+    val activeClip = remember(clips, currentTimeSeconds) {
+        clips.firstOrNull { clip ->
+            val start = clip.inPointSeconds
+            val end = clip.inPointSeconds + clip.durationSeconds
+            currentTimeSeconds >= start && currentTimeSeconds < end
+        }
     }
-    var staticImageBitmap by remember(videoPath) { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(videoPath, isImage) {
-        if (isImage && !videoPath.isNullOrBlank()) {
+    // Blank space detection: If clips exist on timeline, but current playhead is in an empty gap or before/after clips
+    val isBlankSpace = clips.isNotEmpty() && activeClip == null
+
+    // Determine effective media source path
+    val effectiveSourcePath = when {
+        activeClip != null -> {
+            if (activeClip.isOpticalFlowEnabled && !activeClip.opticalFlowCachedUri.isNullOrBlank()) {
+                activeClip.opticalFlowCachedUri
+            } else {
+                activeClip.sourcePath
+            }
+        }
+        clips.isEmpty() -> videoPath
+        else -> null
+    }
+
+    val isImage = remember(activeClip, effectiveSourcePath) {
+        if (activeClip != null && activeClip.isImage) {
+            true
+        } else {
+            val p = effectiveSourcePath?.lowercase() ?: ""
+            p.endsWith(".jpg") || p.endsWith(".jpeg") || p.endsWith(".png") || p.endsWith(".webp") ||
+            (p.startsWith("content://") && (p.contains("image") || p.contains("media/external/images")))
+        }
+    }
+
+    var staticImageBitmap by remember(effectiveSourcePath) { mutableStateOf<Bitmap?>(null) }
+
+    LaunchedEffect(effectiveSourcePath, isImage) {
+        if (isImage && !effectiveSourcePath.isNullOrBlank()) {
             withContext(Dispatchers.IO) {
                 try {
-                    val bm = if (videoPath.startsWith("content://")) {
-                        context.contentResolver.openInputStream(Uri.parse(videoPath))?.use {
+                    val bm = if (effectiveSourcePath.startsWith("content://")) {
+                        context.contentResolver.openInputStream(Uri.parse(effectiveSourcePath))?.use {
                             BitmapFactory.decodeStream(it)
                         }
                     } else {
-                        BitmapFactory.decodeFile(videoPath)
+                        BitmapFactory.decodeFile(effectiveSourcePath)
                     }
                     staticImageBitmap = bm
                 } catch (_: Exception) {
@@ -119,7 +154,7 @@ fun VideoPreviewSection(
     val exoPlayer = remember {
         try {
             LowMemoryExoPlayerHelper.createLowMemoryPlayer(context).apply {
-                repeatMode = Player.REPEAT_MODE_ALL
+                repeatMode = Player.REPEAT_MODE_OFF
                 volume = if (isAudioMuted) 0f else 1f
             }
         } catch (_: Exception) {
@@ -136,16 +171,21 @@ fun VideoPreviewSection(
         }
     }
 
-    // Switch media item dynamically without destroying hardware decoder and surface
-    LaunchedEffect(videoPath, isImage) {
+    // Dynamic Media Switching when entering a different video clip or blank space
+    var currentLoadedPath by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(effectiveSourcePath, isImage, isBlankSpace) {
         val player = exoPlayer ?: return@LaunchedEffect
-        if (!videoPath.isNullOrBlank() && !isImage) {
-            try {
-                val mediaItem = LowMemoryExoPlayerHelper.buildMediaItem(videoPath)
-                player.setMediaItem(mediaItem)
-                player.prepare()
-            } catch (_: Exception) {}
+        if (!effectiveSourcePath.isNullOrBlank() && !isImage && !isBlankSpace) {
+            if (currentLoadedPath != effectiveSourcePath) {
+                currentLoadedPath = effectiveSourcePath
+                try {
+                    val mediaItem = LowMemoryExoPlayerHelper.buildMediaItem(effectiveSourcePath)
+                    player.setMediaItem(mediaItem)
+                    player.prepare()
+                } catch (_: Exception) {}
+            }
         } else {
+            currentLoadedPath = null
             try {
                 player.stop()
                 player.clearMediaItems()
@@ -153,62 +193,44 @@ fun VideoPreviewSection(
         }
     }
 
-    // Audio Mute Synchronization
-    LaunchedEffect(isAudioMuted) {
-        exoPlayer?.volume = if (isAudioMuted) 0f else 1f
+    // Audio Mute Synchronization: Muted if user muted, or blank space, or image clip
+    LaunchedEffect(isAudioMuted, isBlankSpace, isImage) {
+        exoPlayer?.volume = if (isAudioMuted || isBlankSpace || isImage) 0f else 1f
     }
 
-    // Playback Speed & Optical Flow Slow-Mo Synchronization when paused
-    LaunchedEffect(middleParams) {
-        val baseSpeed = when (middleParams) {
-            is MiddleParameters.SpeedRamp -> middleParams.maxSpeedMultiplier.coerceIn(0.1f, 8.0f)
-            is MiddleParameters.OpticalFlow -> if (middleParams.isEnabled && middleParams.slowMoFactor < 1.0f) {
-                middleParams.slowMoFactor.coerceIn(0.1f, 1.0f)
-            } else 1.0f
-            else -> 1.0f
+    // Local Clip Time Synchronization:
+    val clipLocalSeconds = remember(currentTimeSeconds, activeClip) {
+        if (activeClip != null) {
+            ((currentTimeSeconds - activeClip.inPointSeconds).coerceAtLeast(0.0) * activeClip.speedMultiplier)
+        } else {
+            currentTimeSeconds
         }
-        try {
-            exoPlayer?.setPlaybackSpeed(baseSpeed)
-        } catch (_: Exception) {}
     }
 
-    // Master Clock Synchronization & Dynamic Bézier Speed Ramp (When Playing)
-    LaunchedEffect(isPlaying, exoPlayer, middleParams, totalDurationSeconds) {
+    // Master Clock Synchronization (Driven by WorkspaceViewModel master clock)
+    LaunchedEffect(isPlaying, isBlankSpace, isImage, effectiveSourcePath) {
         val player = exoPlayer ?: return@LaunchedEffect
-        if (isPlaying) {
-            val startMs = (currentTimeSeconds * 1000).toLong()
-            if (kotlin.math.abs(player.currentPosition - startMs) > 200) {
-                player.seekTo(startMs)
+        if (isPlaying && !isBlankSpace && !isImage && !effectiveSourcePath.isNullOrBlank()) {
+            val targetMs = (clipLocalSeconds * 1000).toLong()
+            if (kotlin.math.abs(player.currentPosition - targetMs) > 250) {
+                player.seekTo(targetMs)
             }
+            val clipSpeed = (activeClip?.speedMultiplier?.toFloat() ?: 1.0f).coerceIn(0.1f, 8.0f)
+            player.setPlaybackSpeed(clipSpeed)
             player.play()
-            while (isPlaying && player.isPlaying) {
-                val currentSec = player.currentPosition / 1000.0
-                onTimeUpdate(currentSec)
-
-                // Dynamic speed ramp along the Bézier curve during playback
-                if (middleParams is MiddleParameters.SpeedRamp && middleParams.curveControlPoints.isNotEmpty()) {
-                    val normTime = (currentSec / totalDurationSeconds.coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f)
-                    val dynamicSpeed = evaluateCurveSpeed(middleParams.curveControlPoints, normTime)
-                    try {
-                        if (kotlin.math.abs(player.playbackParameters.speed - dynamicSpeed) > 0.05f) {
-                            player.setPlaybackSpeed(dynamicSpeed)
-                        }
-                    } catch (_: Exception) {}
-                }
-
-                delay(16) // ~60 FPS smooth timeline sync
-            }
         } else {
             player.pause()
         }
     }
 
-    // Timeline Scrubbing / Seeking: Timeline -> ExoPlayer (ONLY When Paused)
-    LaunchedEffect(currentTimeSeconds) {
-        if (!isPlaying) {
+    // Position sync while paused or seeking
+    LaunchedEffect(clipLocalSeconds) {
+        if (!isPlaying && !isBlankSpace && !isImage && !effectiveSourcePath.isNullOrBlank()) {
             exoPlayer?.let { player ->
-                val targetMs = (currentTimeSeconds * 1000).toLong()
-                player.seekTo(targetMs)
+                val targetMs = (clipLocalSeconds * 1000).toLong()
+                if (kotlin.math.abs(player.currentPosition - targetMs) > 100) {
+                    player.seekTo(targetMs)
+                }
             }
         }
     }
@@ -229,6 +251,10 @@ fun VideoPreviewSection(
         }
 
         val isTrackingActive = activeTool == ToolType.MOTION_TRACKING || trackingMode == ActiveTrackingMode.MOTION_TRACKING
+        val currentIsTrackingActive by rememberUpdatedState(isTrackingActive)
+        val currentMiddleParams by rememberUpdatedState(middleParams)
+        val currentOnUpdateTrackingTarget by rememberUpdatedState(onUpdateTrackingTarget)
+        val currentOnPlayPauseToggle by rememberUpdatedState(onPlayPauseToggle)
 
         Box(
             modifier = Modifier
@@ -241,50 +267,96 @@ fun VideoPreviewSection(
                     color = if (trackingMode != ActiveTrackingMode.NONE || isTrackingActive) Color(0xFF2E7D32) else BwCardStroke,
                     shape = RoundedCornerShape(8.dp)
                 )
-                .pointerInput(isTrackingActive, middleParams) {
-                    if (isTrackingActive) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
-                            if (w > 0f && h > 0f) {
-                                val motion = middleParams as? MiddleParameters.MotionTracking
-                                val curTargetX = motion?.targetX ?: 0.5f
-                                val curTargetY = motion?.targetY ?: 0.5f
-                                val curBoxW = motion?.boxWidth ?: 0.16f
-                                val curBoxH = motion?.boxHeight ?: 0.14f
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val startPos = down.position
+                        var isTransforming = false
+                        val w = size.width.toFloat()
+                        val h = size.height.toFloat()
 
-                                val newX = (curTargetX + (pan.x / w)).coerceIn(0.05f, 0.95f)
-                                val newY = (curTargetY + (pan.y / h)).coerceIn(0.05f, 0.95f)
-                                val newW = (curBoxW * zoom).coerceIn(0.04f, 0.7f)
-                                val newH = (curBoxH * zoom).coerceIn(0.04f, 0.7f)
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val activePointers = event.changes.filter { it.pressed }
+                            if (activePointers.isEmpty()) {
+                                if (!isTransforming) {
+                                    if (currentIsTrackingActive && w > 0 && h > 0) {
+                                        val motion = currentMiddleParams as? MiddleParameters.MotionTracking
+                                        val curBoxW = motion?.boxWidth ?: 0.16f
+                                        val curBoxH = motion?.boxHeight ?: 0.14f
+                                        val newX = (startPos.x / w).coerceIn(0.05f, 0.95f)
+                                        val newY = (startPos.y / h).coerceIn(0.05f, 0.95f)
+                                        currentOnUpdateTrackingTarget(newX, newY, curBoxW, curBoxH)
+                                    } else {
+                                        currentOnPlayPauseToggle()
+                                    }
+                                }
+                                break
+                            }
 
-                                onUpdateTrackingTarget(newX, newY, newW, newH)
+                            if (currentIsTrackingActive && w > 0 && h > 0) {
+                                if (activePointers.size >= 2) {
+                                    isTransforming = true
+                                    val p1 = activePointers[0].position
+                                    val p2 = activePointers[1].position
+                                    val prev1 = activePointers[0].previousPosition
+                                    val prev2 = activePointers[1].previousPosition
+                                    val currentDist = kotlin.math.hypot(p1.x - p2.x, p1.y - p2.y)
+                                    val prevDist = kotlin.math.hypot(prev1.x - prev2.x, prev1.y - prev2.y)
+                                    if (prevDist > 0f) {
+                                        val zoom = currentDist / prevDist
+                                        val motion = currentMiddleParams as? MiddleParameters.MotionTracking
+                                        val curX = motion?.targetX ?: 0.5f
+                                        val curY = motion?.targetY ?: 0.5f
+                                        val curW = motion?.boxWidth ?: 0.16f
+                                        val curH = motion?.boxHeight ?: 0.14f
+                                        val newW = (curW * zoom).coerceIn(0.04f, 0.8f)
+                                        val newH = (curH * zoom).coerceIn(0.04f, 0.8f)
+                                        currentOnUpdateTrackingTarget(curX, curY, newW, newH)
+                                    }
+                                    activePointers.forEach { it.consume() }
+                                } else if (activePointers.size == 1) {
+                                    val change = activePointers[0]
+                                    val dragDelta = change.position - change.previousPosition
+                                    val totalMove = kotlin.math.hypot(change.position.x - startPos.x, change.position.y - startPos.y)
+                                    if (!isTransforming && totalMove > 6f) {
+                                        isTransforming = true
+                                    }
+                                    if (isTransforming) {
+                                        change.consume()
+                                        val motion = currentMiddleParams as? MiddleParameters.MotionTracking
+                                        val curX = motion?.targetX ?: 0.5f
+                                        val curY = motion?.targetY ?: 0.5f
+                                        val curW = motion?.boxWidth ?: 0.16f
+                                        val curH = motion?.boxHeight ?: 0.14f
+                                        val newX = (curX + dragDelta.x / w).coerceIn(0.05f, 0.95f)
+                                        val newY = (curY + dragDelta.y / h).coerceIn(0.05f, 0.95f)
+                                        currentOnUpdateTrackingTarget(newX, newY, curW, curH)
+                                    }
+                                }
                             }
                         }
-                    }
-                }
-                .pointerInput(isTrackingActive, middleParams) {
-                    if (isTrackingActive) {
-                        detectTapGestures { tapOffset ->
-                            val w = size.width.toFloat()
-                            val h = size.height.toFloat()
-                            if (w > 0f && h > 0f) {
-                                val motion = middleParams as? MiddleParameters.MotionTracking
-                                val curBoxW = motion?.boxWidth ?: 0.16f
-                                val curBoxH = motion?.boxHeight ?: 0.14f
-                                val newX = (tapOffset.x / w).coerceIn(0.05f, 0.95f)
-                                val newY = (tapOffset.y / h).coerceIn(0.05f, 0.95f)
-                                onUpdateTrackingTarget(newX, newY, curBoxW, curBoxH)
-                            }
-                        }
-                    } else {
-                        detectTapGestures { onPlayPauseToggle() }
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            // 1. Photo / Image Clip Static Surface
-            if (staticImageBitmap != null) {
+            // 0. Blank Space (Empty gap between clips): Pure Black Screen
+            if (isBlankSpace) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "BLANK GAP",
+                        color = Color(0xFF333333),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else if (staticImageBitmap != null) {
                 val bm = staticImageBitmap!!
                 Canvas(
                     modifier = Modifier.fillMaxSize()
@@ -466,8 +538,22 @@ fun VideoPreviewSection(
 
                     ActiveTrackingMode.MOTION_TRACKING -> {
                         val motionParams = middleParams as? MiddleParameters.MotionTracking
-                        val cx = if (motionParams != null) w * motionParams.targetX else w * 0.5f
-                        val cy = if (motionParams != null) h * motionParams.targetY else h * 0.55f
+                        val normTime = (currentTimeSeconds / totalDurationSeconds.coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f)
+                        val kfs = motionParams?.trackingKeyframes ?: emptyList()
+                        val (curX, curY) = if (motionParams != null && motionParams.isTrackingDone && kfs.isNotEmpty()) {
+                            val idxF = normTime * (kfs.size - 1)
+                            val idx0 = idxF.toInt().coerceIn(0, kfs.size - 1)
+                            val idx1 = (idx0 + 1).coerceAtMost(kfs.size - 1)
+                            val frac = idxF - idx0
+                            val p0 = kfs[idx0]
+                            val p1 = kfs[idx1]
+                            Pair(p0.x + (p1.x - p0.x) * frac, p0.y + (p1.y - p0.y) * frac)
+                        } else {
+                            Pair(motionParams?.targetX ?: 0.5f, motionParams?.targetY ?: 0.55f)
+                        }
+
+                        val cx = w * curX
+                        val cy = h * curY
                         val bw = if (motionParams != null) (w * motionParams.boxWidth).coerceAtLeast(40f) else 80f
                         val bh = if (motionParams != null) (h * motionParams.boxHeight).coerceAtLeast(40f) else 80f
 
@@ -487,7 +573,7 @@ fun VideoPreviewSection(
                         drawLine(greenColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
                         drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
                         drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
-                        drawLine(greenColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
+                        drawLine(greenColor, Offset(right, bottom), Offset(right, bottom + cornerLen), strokeW)
 
                         // 4 Interactive Corner Resize Handle Dots
                         val handleRadius = 6f
@@ -506,9 +592,29 @@ fun VideoPreviewSection(
                         drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 2.5f)
                         drawCircle(color = Color.White, radius = 3.5f, center = Offset(cx, cy))
 
+                        // Radar sweep if tracking is running
+                        if (motionParams != null && motionParams.isTrackingRunning) {
+                            val progress = (motionParams.trackingProgress * 100).toInt()
+                            val sweepFrac = ((System.currentTimeMillis() % 1000) / 1000f)
+                            val sweepY = top + bh * sweepFrac
+                            drawLine(
+                                color = Color(0xFF00E676),
+                                start = Offset(left, sweepY),
+                                end = Offset(right, sweepY),
+                                strokeWidth = 3f
+                            )
+                            val scanPaint = android.graphics.Paint().apply {
+                                color = android.graphics.Color.parseColor("#00E676")
+                                textSize = 18f
+                                typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                                isAntiAlias = true
+                            }
+                            drawContext.canvas.nativeCanvas.drawText("SCANNING: $progress%", left, top - 15f, scanPaint)
+                        }
+
                         // HUD Callout Leader Line & Title
                         val calloutTitle = motionParams?.hudTitle ?: "TARGET LOCKED"
-                        val calloutSub = motionParams?.hudSubtitle ?: "60 FPS TRACK"
+                        val calloutSub = if (motionParams?.isTrackingDone == true) "TRACKING ACTIVE • 60 FPS" else (motionParams?.hudSubtitle ?: "60 FPS TRACK")
                         val p1 = Offset(right, top)
                         val p2 = Offset(right + 20f, top - 20f)
                         val p3 = Offset(right + 85f, top - 20f)
@@ -537,8 +643,22 @@ fun VideoPreviewSection(
 
                     ActiveTrackingMode.NONE -> {
                         if (activeTool == ToolType.MOTION_TRACKING && middleParams is MiddleParameters.MotionTracking) {
-                            val cx = w * middleParams.targetX
-                            val cy = h * middleParams.targetY
+                            val normTime = (currentTimeSeconds / totalDurationSeconds.coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f)
+                            val kfs = middleParams.trackingKeyframes
+                            val (curX, curY) = if (middleParams.isTrackingDone && kfs.isNotEmpty()) {
+                                val idxF = normTime * (kfs.size - 1)
+                                val idx0 = idxF.toInt().coerceIn(0, kfs.size - 1)
+                                val idx1 = (idx0 + 1).coerceAtMost(kfs.size - 1)
+                                val frac = idxF - idx0
+                                val p0 = kfs[idx0]
+                                val p1 = kfs[idx1]
+                                Pair(p0.x + (p1.x - p0.x) * frac, p0.y + (p1.y - p0.y) * frac)
+                            } else {
+                                Pair(middleParams.targetX, middleParams.targetY)
+                            }
+
+                            val cx = w * curX
+                            val cy = h * curY
                             val bw = (w * middleParams.boxWidth).coerceAtLeast(40f)
                             val bh = (h * middleParams.boxHeight).coerceAtLeast(40f)
                             val left = cx - bw / 2
@@ -556,7 +676,7 @@ fun VideoPreviewSection(
                             drawLine(greenColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
                             drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
                             drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
-                            drawLine(greenColor, Offset(right, bottom), Offset(right, bottom - cornerLen), strokeW)
+                            drawLine(greenColor, Offset(right, bottom), Offset(right, bottom + cornerLen), strokeW)
 
                             // 4 Corner resize handle dots
                             val handleRadius = 6f
@@ -574,6 +694,25 @@ fun VideoPreviewSection(
                             drawLine(greenColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 2.5f)
                             drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 2.5f)
                             drawCircle(color = Color.White, radius = 3.5f, center = Offset(cx, cy))
+
+                            if (middleParams.isTrackingRunning) {
+                                val progress = (middleParams.trackingProgress * 100).toInt()
+                                val sweepFrac = ((System.currentTimeMillis() % 1000) / 1000f)
+                                val sweepY = top + bh * sweepFrac
+                                drawLine(
+                                    color = Color(0xFF00E676),
+                                    start = Offset(left, sweepY),
+                                    end = Offset(right, sweepY),
+                                    strokeWidth = 3f
+                                )
+                                val scanPaint = android.graphics.Paint().apply {
+                                    color = android.graphics.Color.parseColor("#00E676")
+                                    textSize = 18f
+                                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+                                    isAntiAlias = true
+                                }
+                                drawContext.canvas.nativeCanvas.drawText("SCANNING: $progress%", left, top - 15f, scanPaint)
+                            }
 
                             val subPaint = android.graphics.Paint().apply {
                                 color = android.graphics.Color.parseColor("#00E676")

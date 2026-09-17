@@ -113,6 +113,7 @@ fun WorkspaceScreen(
                         onCancelOpticalFlow = { viewModel.cancelOpticalFlow() },
                         onRenderRotoscope = { viewModel.renderRotoscope() },
                         onCancelRotoscope = { viewModel.cancelRotoscope() },
+                        onStartMotionTracking = { viewModel.startMotionTracking() },
                         modifier = Modifier.heightIn(max = 350.dp)
                     )
                 }
@@ -208,7 +209,9 @@ fun WorkspaceScreen(
                         onUpdateTrackingTarget = { x, y, w, h ->
                             viewModel.updateTrackingTarget(x, y, w, h)
                         },
-                        videoPath = activeVideoPath
+                        videoPath = activeVideoPath,
+                        clips = uiState.clips,
+                        overlays = uiState.overlays
                     )
                 }
 
@@ -236,8 +239,8 @@ fun WorkspaceScreen(
                 onDeselectAll = { viewModel.deselectAll() },
                 onSelectOverlay = { viewModel.selectOverlay(it) },
                 onStopTracking = { viewModel.stopTracking() },
-                onTrimClipBoundaries = { clipId, newIn, newOut ->
-                    viewModel.trimClipBoundaries(clipId, newIn, newOut)
+                onTrimClipBoundaries = { clipId, newIn, newOut, isCommitted ->
+                    viewModel.trimClipBoundaries(clipId, newIn, newOut, isCommitted)
                 }
             )
         }

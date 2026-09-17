@@ -73,7 +73,7 @@ fun TimelineSection(
     onDeselectAll: () -> Unit = {},
     onSelectOverlay: (String) -> Unit = {},
     onStopTracking: () -> Unit = {},
-    onTrimClipBoundaries: (String, Double, Double) -> Unit = { _, _, _ -> },
+    onTrimClipBoundaries: (String, Double, Double, Boolean) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -91,6 +91,11 @@ fun TimelineSection(
     val currentSeekTime by rememberUpdatedState(currentTimeSeconds)
     val currentDuration by rememberUpdatedState(totalDurationSeconds)
     val currentOnSeek by rememberUpdatedState(onSeek)
+    val currentClips by rememberUpdatedState(clips)
+    val currentSelectedClipId by rememberUpdatedState(selectedClipId)
+    val currentOnTrimClipBoundaries by rememberUpdatedState(onTrimClipBoundaries)
+    val currentOnSelectClip by rememberUpdatedState(onSelectClip)
+    val currentOnDeselectAll by rememberUpdatedState(onDeselectAll)
 
     // Pixels per second scale (zoom factor)
     val pixelsPerSecond = 70f // 70 dp per second gives smooth scrubbing and thumbnail display
@@ -317,7 +322,7 @@ fun TimelineSection(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .pointerInput(clips, currentDuration, selectedClipId) {
+                        .pointerInput(Unit) {
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false)
                                 val startX = down.position.x
@@ -325,7 +330,7 @@ fun TimelineSection(
                                 val startTime = currentSeekTime
                                 var isDragging = false
 
-                                val selClip = clips.find { it.isSelected || it.id == selectedClipId }
+                                val selClip = currentClips.find { it.isSelected || it.id == currentSelectedClipId }
                                 val centerPx = size.width / 2f
                                 val scrollOffsetPx = centerPx - (currentSeekTime.toFloat() * pixelsPerSecond)
                                 val t1Top = 22f
@@ -334,20 +339,27 @@ fun TimelineSection(
                                 var dragMode = 0 // 0 = playhead scroll, 1 = left trim handle, 2 = right trim handle
                                 var initialClipIn = 0.0
                                 var initialClipOut = 0.0
+                                var lastNewIn = 0.0
+                                var lastNewOut = 0.0
 
-                                if (selClip != null && startY in (t1Top - 12f)..(t1Top + t1Height + 12f)) {
+                                val handleHitRadiusPx = 44f
+                                if (selClip != null && startY in (t1Top - 20f)..(t1Top + t1Height + 20f)) {
                                     val clipStartPx = scrollOffsetPx + (selClip.inPointSeconds.toFloat() * pixelsPerSecond)
                                     val clipWidthPx = (selClip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
                                     val clipEndPx = clipStartPx + clipWidthPx
 
-                                    if (kotlin.math.abs(startX - clipStartPx) <= 24f) {
+                                    if (kotlin.math.abs(startX - clipStartPx) <= handleHitRadiusPx) {
                                         dragMode = 1
                                         initialClipIn = selClip.inPointSeconds
                                         initialClipOut = selClip.outPointSeconds
-                                    } else if (kotlin.math.abs(startX - clipEndPx) <= 24f) {
+                                        lastNewIn = initialClipIn
+                                        lastNewOut = initialClipOut
+                                    } else if (kotlin.math.abs(startX - clipEndPx) <= handleHitRadiusPx) {
                                         dragMode = 2
                                         initialClipIn = selClip.inPointSeconds
                                         initialClipOut = selClip.outPointSeconds
+                                        lastNewIn = initialClipIn
+                                        lastNewOut = initialClipOut
                                     }
                                 }
 
@@ -361,18 +373,25 @@ fun TimelineSection(
                                             val deltaSec = deltaPx / pixelsPerSecond
                                             val target = (startTime + deltaSec).coerceIn(0.0, currentDuration)
 
-                                            val clickedClip = clips.firstOrNull { clip ->
+                                            val clickedClip = currentClips.firstOrNull { clip ->
                                                 val inSec = clip.inPointSeconds
                                                 val outSec = clip.inPointSeconds + clip.durationSeconds
                                                 target in inSec..outSec
                                             }
 
                                             if (clickedClip != null) {
-                                                onSelectClip(clickedClip.id)
+                                                currentOnSelectClip(clickedClip.id)
                                             } else {
-                                                onDeselectAll()
+                                                currentOnDeselectAll()
                                             }
                                             currentOnSeek(target)
+                                        } else {
+                                            // Drag completed: commit final trimmed state to project & undo stack
+                                            if (dragMode == 1 || dragMode == 2) {
+                                                selClip?.let {
+                                                    currentOnTrimClipBoundaries(it.id, lastNewIn, lastNewOut, true)
+                                                }
+                                            }
                                         }
                                         break
                                     }
@@ -386,19 +405,21 @@ fun TimelineSection(
                                         change.consume()
                                         when (dragMode) {
                                             1 -> {
-                                                // Dragging left trim handle
+                                                // Dragging left trim handle (fast preview update, uncommitted)
                                                 val deltaSec = (currentDragPx / pixelsPerSecond).toDouble()
-                                                val newIn = (initialClipIn + deltaSec).coerceIn(0.0, initialClipOut - 0.1)
-                                                if (selClip != null) {
-                                                    onTrimClipBoundaries(selClip.id, newIn, initialClipOut)
+                                                lastNewIn = (initialClipIn + deltaSec).coerceIn(0.0, initialClipOut - 0.1)
+                                                lastNewOut = initialClipOut
+                                                selClip?.let {
+                                                    currentOnTrimClipBoundaries(it.id, lastNewIn, lastNewOut, false)
                                                 }
                                             }
                                             2 -> {
-                                                // Dragging right trim handle
+                                                // Dragging right trim handle (fast preview update, uncommitted)
                                                 val deltaSec = (currentDragPx / pixelsPerSecond).toDouble()
-                                                val newOut = (initialClipOut + deltaSec).coerceAtLeast(initialClipIn + 0.1)
-                                                if (selClip != null) {
-                                                    onTrimClipBoundaries(selClip.id, initialClipIn, newOut)
+                                                lastNewIn = initialClipIn
+                                                lastNewOut = (initialClipOut + deltaSec).coerceAtLeast(initialClipIn + 0.1)
+                                                selClip?.let {
+                                                    currentOnTrimClipBoundaries(it.id, lastNewIn, lastNewOut, false)
                                                 }
                                             }
                                             else -> {

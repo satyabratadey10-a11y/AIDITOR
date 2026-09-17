@@ -40,7 +40,8 @@ data class TimelineClip(
     val isOpticalFlowEnabled: Boolean = false,
     val opticalFlowFps: Int = 60,
     val opticalFlowMode: String = "mci",
-    val opticalFlowCachedUri: String? = null
+    val opticalFlowCachedUri: String? = null,
+    val isImage: Boolean = false
 )
 
 enum class OverlayType {

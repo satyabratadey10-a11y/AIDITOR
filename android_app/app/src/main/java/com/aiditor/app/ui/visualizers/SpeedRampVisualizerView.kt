@@ -4,8 +4,11 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -132,104 +135,87 @@ fun SpeedRampVisualizerView(
                 .background(BwBlack)
                 .border(1.dp, BwGreyDark, RoundedCornerShape(8.dp))
         ) {
+            val currentPoints by rememberUpdatedState(activePoints)
+            val currentMaxSpeed by rememberUpdatedState(maxSpeed)
+            val currentOnPointsChanged by rememberUpdatedState(onControlPointsChanged)
+            val currentOnPresetSelected by rememberUpdatedState(onPresetSelected)
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(activePoints, maxSpeed) {
-                        detectTapGestures { tapOffset ->
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
-                            val hitRadius = 36.dp.toPx()
+                            val hitRadius = 44.dp.toPx()
 
-                            // Check if tapped near an existing point
                             var hitIndex: Int? = null
-                            activePoints.forEachIndexed { idx, pt ->
+                            var closestDist = Float.MAX_VALUE
+                            val pts = currentPoints
+                            val maxSpd = currentMaxSpeed
+
+                            pts.forEachIndexed { idx, pt ->
                                 val px = pt.time * w
-                                val py = h - ((pt.speed - minSpeed) / (maxSpeed - minSpeed)) * h
-                                if (hypot(tapOffset.x - px, tapOffset.y - py) <= hitRadius) {
+                                val py = h - ((pt.speed - minSpeed) / (maxSpd - minSpeed)) * h
+                                val d = hypot(down.position.x - px, down.position.y - py)
+                                if (d <= hitRadius && d < closestDist) {
+                                    closestDist = d
                                     hitIndex = idx
                                 }
                             }
 
                             if (hitIndex != null) {
                                 selectedPointIndex = hitIndex
+                                isDragging = true
+
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (!change.pressed) break
+
+                                    val currentDrag = change.position
+                                    change.consume()
+
+                                    val curPts = currentPoints
+                                    val curSpd = currentMaxSpeed
+                                    val idx = hitIndex ?: break
+                                    if (idx !in curPts.indices) break
+
+                                    // Clamping X
+                                    val newTime = when (idx) {
+                                        0 -> 0.0f
+                                        curPts.size - 1 -> 1.0f
+                                        else -> {
+                                            val prevTime = curPts[idx - 1].time + 0.03f
+                                            val nextTime = curPts[idx + 1].time - 0.03f
+                                            (currentDrag.x / w).coerceIn(prevTime, nextTime)
+                                        }
+                                    }
+
+                                    // Clamping Y
+                                    val newSpeed = (minSpeed + (1f - currentDrag.y / h) * (curSpd - minSpeed))
+                                        .coerceIn(0.1f, 8.0f)
+
+                                    val updatedList = curPts.toMutableList()
+                                    updatedList[idx] = CurveControlPoint(newTime, newSpeed)
+                                    currentOnPresetSelected("custom")
+                                    currentOnPointsChanged(updatedList)
+                                }
+                                isDragging = false
                             } else {
-                                // Add a new point at tap position
-                                val tapNormTime = (tapOffset.x / w).coerceIn(0.05f, 0.95f)
-                                val tapSpeed = (minSpeed + (1f - tapOffset.y / h) * (maxSpeed - minSpeed))
-                                    .coerceIn(0.1f, 8.0f)
-                                val newPoints = (activePoints + CurveControlPoint(tapNormTime, tapSpeed))
-                                    .sortedBy { it.time }
-                                selectedPointIndex = newPoints.indexOfFirst { it.time == tapNormTime }
-                                onPresetSelected("custom")
-                                onControlPointsChanged(newPoints)
+                                val up = waitForUpOrCancellation()
+                                if (up != null && !up.isConsumed) {
+                                    val tapNormTime = (down.position.x / w).coerceIn(0.05f, 0.95f)
+                                    val tapSpeed = (minSpeed + (1f - down.position.y / h) * (maxSpd - minSpeed))
+                                        .coerceIn(0.1f, 8.0f)
+                                    val newPoints = (pts + CurveControlPoint(tapNormTime, tapSpeed)).sortedBy { it.time }
+                                    selectedPointIndex = newPoints.indexOfFirst { it.time == tapNormTime }
+                                    currentOnPresetSelected("custom")
+                                    currentOnPointsChanged(newPoints)
+                                }
                             }
                         }
-                    }
-                    .pointerInput(activePoints, maxSpeed) {
-                        detectDragGestures(
-                            onDragStart = { startOffset ->
-                                val w = size.width.toFloat()
-                                val h = size.height.toFloat()
-                                val hitRadius = 40.dp.toPx()
-
-                                var closestIdx: Int? = null
-                                var closestDist = Float.MAX_VALUE
-                                activePoints.forEachIndexed { idx, pt ->
-                                    val px = pt.time * w
-                                    val py = h - ((pt.speed - minSpeed) / (maxSpeed - minSpeed)) * h
-                                    val d = hypot(startOffset.x - px, startOffset.y - py)
-                                    if (d <= hitRadius && d < closestDist) {
-                                        closestDist = d
-                                        closestIdx = idx
-                                    }
-                                }
-
-                                if (closestIdx != null) {
-                                    selectedPointIndex = closestIdx
-                                    isDragging = true
-                                }
-                            },
-                            onDragEnd = {
-                                isDragging = false
-                            },
-                            onDragCancel = {
-                                isDragging = false
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                val curIdx = selectedPointIndex ?: return@detectDragGestures
-                                val w = size.width.toFloat()
-                                val h = size.height.toFloat()
-
-                                val currentPt = activePoints[curIdx]
-                                val curPx = currentPt.time * w
-                                val curPy = h - ((currentPt.speed - minSpeed) / (maxSpeed - minSpeed)) * h
-
-                                val newPx = curPx + dragAmount.x
-                                val newPy = curPy + dragAmount.y
-
-                                // Clamping X
-                                val newTime = when (curIdx) {
-                                    0 -> 0.0f // First point locked at time = 0
-                                    activePoints.size - 1 -> 1.0f // Last point locked at time = 1
-                                    else -> {
-                                        val prevTime = activePoints[curIdx - 1].time + 0.04f
-                                        val nextTime = activePoints[curIdx + 1].time - 0.04f
-                                        (newPx / w).coerceIn(prevTime, nextTime)
-                                    }
-                                }
-
-                                // Clamping Y
-                                val newSpeed = (minSpeed + (1f - newPy / h) * (maxSpeed - minSpeed))
-                                    .coerceIn(0.1f, 8.0f)
-
-                                val updatedList = activePoints.toMutableList()
-                                updatedList[curIdx] = CurveControlPoint(newTime, newSpeed)
-                                onPresetSelected("custom")
-                                onControlPointsChanged(updatedList)
-                            }
-                        )
                     }
             ) {
                 val w = size.width

@@ -58,7 +58,7 @@ def broadcast_command(action: str, extras: Optional[Dict[str, Any]] = None) -> b
 
 def launch_app() -> Dict[str, Any]:
     try:
-        res = subprocess.run(["am", "start", "-n", MAIN_ACTIVITY], capture_output=True, text=True, timeout=5)
+        res = subprocess.run(["am", "start", "--user", "0", "-n", MAIN_ACTIVITY], capture_output=True, text=True, timeout=5)
         time.sleep(1.2)
         return {"status": "ok", "message": "AIDITOR app launched", "output": res.stdout.strip()}
     except Exception as e:

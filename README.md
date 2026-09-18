@@ -219,6 +219,30 @@ print(graph.render_ascii_graph(title="Custom Speed Ramp", unit="x"))
 
 ---
 
+## 🤖 True Real MCP Automation Server (Model Context Protocol)
+
+AIDITOR features a native embedded **Model Context Protocol (MCP)** server and in-app automation bridge, enabling autonomous AI Coding Agents (such as **Google Antigravity**) to physically interact with and inspect the Android application in real time:
+
+- 👁️ **Live Computer Vision**: Captures zero-delay hardware screenshots via `PixelCopy` to `/sdcard/Download/aiditor_live_screen.png`.
+- 👆 **Genuine Touch Injection**: Injects genuine `ACTION_DOWN`, `ACTION_MOVE`, and `ACTION_UP` `MotionEvent`s directly into the app window decorView (works on non-rooted Android devices).
+- 🎚️ **Fluid Drag Gestures**: Smooth interpolated drag motions for timeline scrubbing, speed curve adjustment, and tracking bounding boxes.
+- 🌳 **Full UI State Introspection**: Complete JSON tree serialization including active screen, current project, clips, layers, playhead timestamp, duration, active tools, and undo/redo stacks.
+- ⚡ **Direct ViewModel Action Dispatch**: Programmatic execution of editing commands (`play_pause`, `seek`, `split`, `delete`, `select_tool`, `start_motion_tracking`, `show_export`).
+- 📜 **Real-time Diagnostic Streaming**: Instant circular in-app logcat and event buffer inspection.
+
+### Running the MCP Server
+```bash
+# Direct CLI diagnostics
+python3 mcp_server/aiditor_mcp.py --test-screenshot
+python3 mcp_server/aiditor_mcp.py --test-ui
+python3 mcp_server/aiditor_mcp.py --test-logs
+
+# Antigravity / Claude MCP Configuration
+# Automatically registered in ~/.gemini/config/mcp_config.json
+```
+
+---
+
 ## 🧪 Automated Testing
 
 Run the automated test suite to verify all easing math, media probes, and render graphs:

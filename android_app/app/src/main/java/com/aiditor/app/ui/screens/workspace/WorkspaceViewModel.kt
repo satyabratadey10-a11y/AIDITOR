@@ -539,14 +539,7 @@ class WorkspaceViewModel(
                 type = if (isLock) OverlayType.STABILIZATION_EFFECT else OverlayType.TRACKING_EFFECT,
                 label = if (isLock) "Stabilize Lock" else "Motion Tracker",
                 startTimeSeconds = clipStart,
-                durationSeconds = clipDur,
-                trackIndex = 1,
-                properties = mapOf(
-                    "targetX" to motion.targetX.toString(),
-                    "targetY" to motion.targetY.toString(),
-                    "boxW" to motion.boxWidth.toString(),
-                    "boxH" to motion.boxHeight.toString()
-                )
+                durationSeconds = clipDur
             )
 
             val nextTrackingMode = if (isLock) ActiveTrackingMode.MOTION_STABILIZATION else ActiveTrackingMode.MOTION_TRACKING
@@ -770,8 +763,7 @@ class WorkspaceViewModel(
                             type = if (isLock) OverlayType.STABILIZATION_EFFECT else OverlayType.TRACKING_EFFECT,
                             label = if (isLock) "Stabilize Lock" else "Motion Tracker",
                             startTimeSeconds = clip.inPointSeconds,
-                            durationSeconds = clip.durationSeconds,
-                            trackIndex = 1
+                            durationSeconds = clip.durationSeconds
                         )
                         _uiState.value = _uiState.value.copy(overlays = _uiState.value.overlays + newOv)
                     }

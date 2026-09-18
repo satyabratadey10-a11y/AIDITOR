@@ -7,6 +7,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.aiditor.app.remote.McpBridge
+import com.aiditor.app.remote.McpBridgeServer
 import com.aiditor.app.ui.navigation.AiditorNavGraph
 import com.aiditor.app.ui.theme.AiditorTheme
 import com.aiditor.app.ui.theme.BwBlack
@@ -14,6 +16,8 @@ import com.aiditor.app.ui.theme.BwBlack
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        McpBridge.registerActivity(this)
+        McpBridgeServer.start()
         enableEdgeToEdge()
         setContent {
             AiditorTheme {
@@ -25,5 +29,11 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        McpBridge.unregisterActivity(this)
+        McpBridgeServer.stop()
     }
 }

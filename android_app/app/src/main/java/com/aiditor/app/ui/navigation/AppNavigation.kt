@@ -30,6 +30,10 @@ fun AiditorNavGraph(
 ) {
     var selectedProject by remember { mutableStateOf<Project?>(null) }
 
+    LaunchedEffect(workspaceViewModel, mainMenuViewModel, navController) {
+        com.aiditor.app.remote.McpBridge.registerViewModels(workspaceViewModel, mainMenuViewModel, navController)
+    }
+
     NavHost(
         navController = navController,
         startDestination = Screen.MainMenu.route

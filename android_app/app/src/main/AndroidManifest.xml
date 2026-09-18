@@ -39,6 +39,14 @@
             android:theme="@style/Theme.Aiditor"
             android:process=":crash_handler"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
+
+        <receiver
+            android:name=".remote.McpCommandReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.aiditor.app.MCP_ACTION" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

@@ -53,6 +53,7 @@ import com.aiditor.app.data.model.ActiveTrackingMode
 import com.aiditor.app.data.model.AspectRatioMode
 import com.aiditor.app.data.model.CurveControlPoint
 import com.aiditor.app.data.model.MiddleParameters
+import com.aiditor.app.data.model.OverlayType
 import com.aiditor.app.data.model.TimelineClip
 import com.aiditor.app.data.model.TimelineOverlay
 import com.aiditor.app.data.model.ToolType

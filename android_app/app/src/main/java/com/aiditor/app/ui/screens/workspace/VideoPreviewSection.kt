@@ -85,6 +85,7 @@ fun VideoPreviewSection(
     activeTool: ToolType?,
     middleParams: MiddleParameters = MiddleParameters.OpticalFlow(),
     onPlayPauseToggle: () -> Unit,
+    onPlaybackEnded: () -> Unit = {},
     onTimeUpdate: (Double) -> Unit = {},
     onUpdateTrackingTarget: (Float, Float, Float, Float) -> Unit = { _, _, _, _ -> },
     videoPath: String? = null,
@@ -93,6 +94,7 @@ fun VideoPreviewSection(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val currentOnPlaybackEnded by rememberUpdatedState(onPlaybackEnded)
 
     // Active Clip determination based on currentTimeSeconds across the entire timeline
     val activeClip = remember(clips, currentTimeSeconds) {
@@ -157,6 +159,13 @@ fun VideoPreviewSection(
             LowMemoryExoPlayerHelper.createLowMemoryPlayer(context).apply {
                 repeatMode = Player.REPEAT_MODE_OFF
                 volume = if (isAudioMuted) 0f else 1f
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_ENDED) {
+                            currentOnPlaybackEnded()
+                        }
+                    }
+                })
             }
         } catch (_: Exception) {
             null
@@ -251,7 +260,9 @@ fun VideoPreviewSection(
             AspectRatioMode.ORIGINAL -> Modifier.aspectRatio(16f / 9f)
         }
 
-        val isTrackingActive = activeTool == ToolType.MOTION_TRACKING || trackingMode == ActiveTrackingMode.MOTION_TRACKING
+        val isTrackingActive = activeTool == ToolType.MOTION_TRACKING ||
+            trackingMode == ActiveTrackingMode.MOTION_TRACKING ||
+            trackingMode == ActiveTrackingMode.MOTION_STABILIZATION
         val currentIsTrackingActive by rememberUpdatedState(isTrackingActive)
         val currentMiddleParams by rememberUpdatedState(middleParams)
         val currentOnUpdateTrackingTarget by rememberUpdatedState(onUpdateTrackingTarget)
@@ -454,44 +465,6 @@ fun VideoPreviewSection(
                 val h = size.height
 
                 when (trackingMode) {
-                    ActiveTrackingMode.MOTION_STABILIZATION -> {
-                        val cx = w * 0.52f
-                        val cy = h * 0.48f
-                        val radius = w * 0.26f
-
-                        val paint = Paint().apply {
-                            color = android.graphics.Color.WHITE
-                            style = Paint.Style.STROKE
-                            strokeWidth = 6f
-                            pathEffect = DashPathEffect(floatArrayOf(20f, 15f), 0f)
-                            isAntiAlias = true
-                        }
-                        drawContext.canvas.nativeCanvas.drawCircle(cx, cy, radius, paint)
-
-                        drawCircle(
-                            color = Color.White,
-                            radius = 10f,
-                            center = Offset(cx, cy)
-                        )
-
-                        val points = listOf(
-                            Offset(cx - radius * 0.6f, cy - radius * 0.3f),
-                            Offset(cx + radius * 0.5f, cy - radius * 0.5f),
-                            Offset(cx - radius * 0.2f, cy + radius * 0.4f),
-                            Offset(cx + radius * 0.4f, cy + radius * 0.2f),
-                            Offset(cx + radius * 0.1f, cy - radius * 0.7f),
-                            Offset(cx - radius * 0.7f, cy + radius * 0.1f),
-                            Offset(cx + radius * 0.6f, cy + radius * 0.6f)
-                        )
-                        points.forEach { pt ->
-                            drawCircle(
-                                color = Color(0xFF00E676),
-                                radius = 7f,
-                                center = pt
-                            )
-                        }
-                    }
-
                     ActiveTrackingMode.FACE_TRACKING -> {
                         val cx = w * 0.5f
                         val cy = h * 0.46f
@@ -537,14 +510,25 @@ fun VideoPreviewSection(
                         drawLine(Color.White.copy(alpha = 0.8f), Offset(cx, cy - 15f), Offset(cx, cy + 15f), 2f)
                     }
 
-                    ActiveTrackingMode.MOTION_TRACKING -> {
+                    ActiveTrackingMode.MOTION_TRACKING, ActiveTrackingMode.MOTION_STABILIZATION -> {
+                        val isStabilize = (trackingMode == ActiveTrackingMode.MOTION_STABILIZATION)
                         val motionParams = middleParams as? MiddleParameters.MotionTracking
                         val trackingOverlay = overlays.find { it.type == OverlayType.TRACKING_EFFECT || it.type == OverlayType.STABILIZATION_EFFECT }
                         val trackStart = trackingOverlay?.startTimeSeconds ?: 0.0
                         val trackDur = (trackingOverlay?.durationSeconds ?: totalDurationSeconds).coerceAtLeast(0.1)
-                        val normTime = ((currentTimeSeconds - trackStart) / trackDur).coerceIn(0.0, 1.0).toFloat()
-                        val kfs = motionParams?.trackingKeyframes ?: emptyList()
-                        val (curX, curY) = if (motionParams != null && motionParams.isTrackingDone && kfs.isNotEmpty()) {
+                        val kfs = if (!motionParams?.trackingKeyframes.isNullOrEmpty()) {
+                            motionParams!!.trackingKeyframes
+                        } else if (!trackingOverlay?.trackingKeyframes.isNullOrEmpty()) {
+                            trackingOverlay!!.trackingKeyframes
+                        } else {
+                            emptyList()
+                        }
+                        val initialTargetX = motionParams?.targetX ?: trackingOverlay?.targetX ?: 0.5f
+                        val initialTargetY = motionParams?.targetY ?: trackingOverlay?.targetY ?: 0.55f
+                        val boxWParam = motionParams?.boxWidth ?: trackingOverlay?.boxWidth ?: 0.16f
+                        val boxHParam = motionParams?.boxHeight ?: trackingOverlay?.boxHeight ?: 0.14f
+
+                        val (curX, curY) = if (kfs.isNotEmpty()) {
                             val idxF = normTime * (kfs.size - 1)
                             val idx0 = idxF.toInt().coerceIn(0, kfs.size - 1)
                             val idx1 = (idx0 + 1).coerceAtMost(kfs.size - 1)
@@ -553,47 +537,48 @@ fun VideoPreviewSection(
                             val p1 = kfs[idx1]
                             Pair(p0.x + (p1.x - p0.x) * frac, p0.y + (p1.y - p0.y) * frac)
                         } else {
-                            Pair(motionParams?.targetX ?: 0.5f, motionParams?.targetY ?: 0.55f)
+                            Pair(initialTargetX, initialTargetY)
                         }
 
                         val cx = w * curX
                         val cy = h * curY
-                        val bw = if (motionParams != null) (w * motionParams.boxWidth).coerceAtLeast(40f) else 80f
-                        val bh = if (motionParams != null) (h * motionParams.boxHeight).coerceAtLeast(40f) else 80f
+                        val bw = (w * boxWParam).coerceAtLeast(40f)
+                        val bh = (h * boxHParam).coerceAtLeast(40f)
 
                         val left = cx - bw / 2
                         val right = cx + bw / 2
                         val top = cy - bh / 2
                         val bottom = cy + bh / 2
                         val cornerLen = (bw * 0.25f).coerceIn(12f, 30f)
-                        val greenColor = Color(0xFF00E676)
+                        val themeColor = if (isStabilize) Color(0xFFFFD54F) else Color(0xFF00E676)
+                        val themeHex = if (isStabilize) "#FFD54F" else "#00E676"
                         val strokeW = 4f
 
                         // Corner Reticle Brackets [ ]
-                        drawLine(greenColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
-                        drawLine(greenColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)
-                        drawLine(greenColor, Offset(right, top), Offset(right - cornerLen, top), strokeW)
-                        drawLine(greenColor, Offset(right, top), Offset(right, top + cornerLen), strokeW)
-                        drawLine(greenColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
-                        drawLine(greenColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
-                        drawLine(greenColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
-                        drawLine(greenColor, Offset(right, bottom), Offset(right, bottom + cornerLen), strokeW)
+                        drawLine(themeColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
+                        drawLine(themeColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)
+                        drawLine(themeColor, Offset(right, top), Offset(right - cornerLen, top), strokeW)
+                        drawLine(themeColor, Offset(right, top), Offset(right, top + cornerLen), strokeW)
+                        drawLine(themeColor, Offset(left, bottom), Offset(left + cornerLen, bottom), strokeW)
+                        drawLine(themeColor, Offset(left, bottom), Offset(left, bottom - cornerLen), strokeW)
+                        drawLine(themeColor, Offset(right, bottom), Offset(right - cornerLen, bottom), strokeW)
+                        drawLine(themeColor, Offset(right, bottom), Offset(right, bottom + cornerLen), strokeW)
 
                         // 4 Interactive Corner Resize Handle Dots
                         val handleRadius = 6f
                         drawCircle(color = Color.White, radius = handleRadius, center = Offset(left, top))
-                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(left, top), style = Stroke(2f))
+                        drawCircle(color = themeColor, radius = handleRadius, center = Offset(left, top), style = Stroke(2f))
                         drawCircle(color = Color.White, radius = handleRadius, center = Offset(right, top))
-                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(right, top), style = Stroke(2f))
+                        drawCircle(color = themeColor, radius = handleRadius, center = Offset(right, top), style = Stroke(2f))
                         drawCircle(color = Color.White, radius = handleRadius, center = Offset(left, bottom))
-                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(left, bottom), style = Stroke(2f))
+                        drawCircle(color = themeColor, radius = handleRadius, center = Offset(left, bottom), style = Stroke(2f))
                         drawCircle(color = Color.White, radius = handleRadius, center = Offset(right, bottom))
-                        drawCircle(color = greenColor, radius = handleRadius, center = Offset(right, bottom), style = Stroke(2f))
+                        drawCircle(color = themeColor, radius = handleRadius, center = Offset(right, bottom), style = Stroke(2f))
 
                         // Center Crosshair
                         val inner = 16f
-                        drawLine(greenColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 2.5f)
-                        drawLine(greenColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 2.5f)
+                        drawLine(themeColor, Offset(cx - inner, cy), Offset(cx + inner, cy), 2.5f)
+                        drawLine(themeColor, Offset(cx, cy - inner), Offset(cx, cy + inner), 2.5f)
                         drawCircle(color = Color.White, radius = 3.5f, center = Offset(cx, cy))
 
                         // Radar sweep if tracking is running
@@ -602,13 +587,13 @@ fun VideoPreviewSection(
                             val sweepFrac = ((System.currentTimeMillis() % 1000) / 1000f)
                             val sweepY = top + bh * sweepFrac
                             drawLine(
-                                color = Color(0xFF00E676),
+                                color = themeColor,
                                 start = Offset(left, sweepY),
                                 end = Offset(right, sweepY),
                                 strokeWidth = 3f
                             )
                             val scanPaint = android.graphics.Paint().apply {
-                                color = android.graphics.Color.parseColor("#00E676")
+                                color = android.graphics.Color.parseColor(themeHex)
                                 textSize = 18f
                                 typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
                                 isAntiAlias = true
@@ -617,13 +602,17 @@ fun VideoPreviewSection(
                         }
 
                         // HUD Callout Leader Line & Title
-                        val calloutTitle = motionParams?.hudTitle ?: "TARGET LOCKED"
-                        val calloutSub = if (motionParams?.isTrackingDone == true) "TRACKING ACTIVE • 60 FPS" else (motionParams?.hudSubtitle ?: "60 FPS TRACK")
+                        val calloutTitle = if (isStabilize) "STABILIZE LOCK" else (motionParams?.hudTitle ?: "TARGET LOCKED")
+                        val calloutSub = if (motionParams?.isTrackingDone == true) {
+                            if (isStabilize) "STABILIZATION ACTIVE • 60 FPS" else "TRACKING ACTIVE • 60 FPS"
+                        } else {
+                            if (isStabilize) "DRAG TO SUBJECT TO STABILIZE" else (motionParams?.hudSubtitle ?: "DRAG TO SUBJECT")
+                        }
                         val p1 = Offset(right, top)
                         val p2 = Offset(right + 20f, top - 20f)
                         val p3 = Offset(right + 85f, top - 20f)
-                        drawLine(greenColor, p1, p2, 2f)
-                        drawLine(greenColor, p2, p3, 2f)
+                        drawLine(themeColor, p1, p2, 2f)
+                        drawLine(themeColor, p2, p3, 2f)
 
                         val textPaint = android.graphics.Paint().apply {
                             color = android.graphics.Color.WHITE
@@ -632,7 +621,7 @@ fun VideoPreviewSection(
                             isAntiAlias = true
                         }
                         val subPaint = android.graphics.Paint().apply {
-                            color = android.graphics.Color.parseColor("#00E676")
+                            color = android.graphics.Color.parseColor(themeHex)
                             textSize = 15f
                             typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.NORMAL)
                             isAntiAlias = true

@@ -207,25 +207,51 @@ class WorkspaceViewModel(
         )
     }
 
+    fun onPlaybackEnded() {
+        playbackJob?.cancel()
+        playbackJob = null
+        _uiState.value = _uiState.value.copy(
+            isPlaying = false,
+            currentTimeSeconds = _uiState.value.totalDurationSeconds
+        )
+    }
+
     fun togglePlayPause() {
         val willPlay = !_uiState.value.isPlaying
-        _uiState.value = _uiState.value.copy(isPlaying = willPlay)
+        
+        // If at the end of the timeline, restart smoothly from beginning
+        val startTime = if (willPlay && _uiState.value.currentTimeSeconds >= (_uiState.value.totalDurationSeconds - 0.05)) {
+            0.0
+        } else {
+            _uiState.value.currentTimeSeconds
+        }
+
+        _uiState.value = _uiState.value.copy(
+            isPlaying = willPlay,
+            currentTimeSeconds = startTime
+        )
 
         playbackJob?.cancel()
         if (willPlay) {
             playbackJob = viewModelScope.launch {
                 var lastTimeNs = System.nanoTime()
                 while (_uiState.value.isPlaying) {
-                    delay(16) // ~60 FPS smooth master playback clock
+                    delay(33) // ~30 FPS smooth clock (prevents GC thrashing & Compose lag)
                     val nowNs = System.nanoTime()
-                    val dt = ((nowNs - lastTimeNs) / 1_000_000_000.0).coerceIn(0.005, 0.050)
+                    val dt = ((nowNs - lastTimeNs) / 1_000_000_000.0).coerceIn(0.010, 0.080)
                     lastTimeNs = nowNs
 
-                    var nextTime = _uiState.value.currentTimeSeconds + dt
+                    val nextTime = _uiState.value.currentTimeSeconds + dt
                     if (nextTime >= _uiState.value.totalDurationSeconds) {
-                        nextTime = 0.0
+                        // Reached end of video timeline: STOP PLAYBACK IMMEDIATELY
+                        _uiState.value = _uiState.value.copy(
+                            currentTimeSeconds = _uiState.value.totalDurationSeconds,
+                            isPlaying = false
+                        )
+                        break
+                    } else {
+                        _uiState.value = _uiState.value.copy(currentTimeSeconds = nextTime)
                     }
-                    _uiState.value = _uiState.value.copy(currentTimeSeconds = nextTime)
                 }
             }
         }
@@ -561,7 +587,12 @@ class WorkspaceViewModel(
                 type = if (isLock) OverlayType.STABILIZATION_EFFECT else OverlayType.TRACKING_EFFECT,
                 label = if (isLock) "Stabilize Lock" else "Motion Tracker",
                 startTimeSeconds = clipStart,
-                durationSeconds = clipDur
+                durationSeconds = clipDur,
+                trackingKeyframes = keyframes,
+                targetX = motion.targetX,
+                targetY = motion.targetY,
+                boxWidth = motion.boxWidth,
+                boxHeight = motion.boxHeight
             )
 
             val nextTrackingMode = if (isLock) ActiveTrackingMode.MOTION_STABILIZATION else ActiveTrackingMode.MOTION_TRACKING
@@ -809,10 +840,14 @@ class WorkspaceViewModel(
     }
 
     fun closeToolInspector() {
-        // Keep active clip's color grade in preview if available
         val selClip = _uiState.value.clips.find { it.isSelected }
             ?: _uiState.value.clips.firstOrNull()
-        val fallbackMiddle = selClip?.colorGrade ?: _uiState.value.middleParams
+        val curMid = _uiState.value.middleParams
+        val fallbackMiddle = if (curMid is MiddleParameters.MotionTracking && (curMid.isTrackingDone || curMid.isTrackingRunning)) {
+            curMid
+        } else {
+            selClip?.colorGrade ?: curMid
+        }
         _uiState.value = _uiState.value.copy(
             activeTool = null,
             activeVisualizerData = null,

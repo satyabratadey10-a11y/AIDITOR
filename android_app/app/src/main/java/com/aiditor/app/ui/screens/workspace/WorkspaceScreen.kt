@@ -205,6 +205,7 @@ fun WorkspaceScreen(
                         activeTool = uiState.activeTool,
                         middleParams = uiState.middleParams,
                         onPlayPauseToggle = { viewModel.togglePlayPause() },
+                        onPlaybackEnded = { viewModel.onPlaybackEnded() },
                         onTimeUpdate = { viewModel.onPlaybackTimeUpdate(it) },
                         onUpdateTrackingTarget = { x, y, w, h ->
                             viewModel.updateTrackingTarget(x, y, w, h)

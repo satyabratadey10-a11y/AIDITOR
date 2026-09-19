@@ -152,15 +152,29 @@ fun ToolInspectorSheet(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Action Button: DONE
+        // Action Button: DONE / START TRACKING
+        val doneBtnText = when (middleParams) {
+            is MiddleParameters.MotionTracking -> {
+                if (middleParams.isTrackingRunning) "TRACKING IN PROGRESS..."
+                else if (middleParams.isTrackingDone) "DONE"
+                else "START TRACKING & DONE"
+            }
+            else -> "DONE"
+        }
+        val doneBtnEnabled = when (middleParams) {
+            is MiddleParameters.MotionTracking -> !middleParams.isTrackingRunning
+            else -> true
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End
         ) {
             BwButton(
-                text = "DONE",
+                text = doneBtnText,
                 onClick = onApplyToTimeline,
                 iconRes = R.drawable.ic_check,
+                enabled = doneBtnEnabled,
                 modifier = Modifier.fillMaxWidth()
             )
         }

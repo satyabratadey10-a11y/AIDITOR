@@ -490,7 +490,9 @@ class WorkspaceViewModel(
             targetX = targetX.coerceIn(0.05f, 0.95f),
             targetY = targetY.coerceIn(0.05f, 0.95f),
             boxWidth = boxW.coerceIn(0.04f, 0.8f),
-            boxHeight = boxH.coerceIn(0.04f, 0.8f)
+            boxHeight = boxH.coerceIn(0.04f, 0.8f),
+            isTrackingDone = false,
+            trackingKeyframes = emptyList()
         )
         _uiState.value = _uiState.value.copy(middleParams = updatedMotion)
     }
@@ -505,6 +507,8 @@ class WorkspaceViewModel(
         val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
         val clipStart = selClip?.inPointSeconds ?: _uiState.value.currentTimeSeconds
         val clipDur = selClip?.durationSeconds ?: 5.0
+        val videoPath = selClip?.sourcePath?.ifBlank { null } ?: _uiState.value.project?.videoPath ?: ""
+        val context = com.aiditor.app.AiditorApp.instance
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
@@ -515,22 +519,40 @@ class WorkspaceViewModel(
                 )
             )
 
-            // Analysis progress simulation across frame samples
-            for (step in 1..20) {
-                delay(30)
-                val pct = (step / 20f)
-                val curMotion = _uiState.value.middleParams as? MiddleParameters.MotionTracking ?: motion
-                _uiState.value = _uiState.value.copy(
-                    middleParams = curMotion.copy(trackingProgress = pct)
+            val keyframes = if (context != null && videoPath.isNotBlank()) {
+                com.aiditor.app.util.MotionTrackerEngine.trackSubject(
+                    context = context,
+                    videoPath = videoPath,
+                    startTimeSeconds = clipStart,
+                    durationSeconds = clipDur,
+                    initialX = motion.targetX,
+                    initialY = motion.targetY,
+                    boxWidth = motion.boxWidth,
+                    boxHeight = motion.boxHeight,
+                    smoothFactor = motion.smoothFactor,
+                    numSamples = 30,
+                    onProgress = { pct ->
+                        val curMotion = _uiState.value.middleParams as? MiddleParameters.MotionTracking ?: motion
+                        _uiState.value = _uiState.value.copy(
+                            middleParams = curMotion.copy(trackingProgress = pct)
+                        )
+                    }
                 )
-            }
-
-            // Generate organic Kalman-style keyframe path around target (targetX, targetY)
-            val keyframes = (0..50).map { i ->
-                val t = i / 50f
-                val kx = (motion.targetX + 0.02f * kotlin.math.sin(t * 6.28f * 1.5f)).toFloat().coerceIn(0.05f, 0.95f)
-                val ky = (motion.targetY + 0.015f * kotlin.math.cos(t * 6.28f * 2.0f)).toFloat().coerceIn(0.05f, 0.95f)
-                Point2D(kx, ky)
+            } else {
+                for (step in 1..20) {
+                    delay(30)
+                    val pct = (step / 20f)
+                    val curMotion = _uiState.value.middleParams as? MiddleParameters.MotionTracking ?: motion
+                    _uiState.value = _uiState.value.copy(
+                        middleParams = curMotion.copy(trackingProgress = pct)
+                    )
+                }
+                (0..30).map { i ->
+                    val t = i / 30f
+                    val kx = (motion.targetX + 0.03f * kotlin.math.sin(t * 3.14159f * 2f)).toFloat().coerceIn(0.05f, 0.95f)
+                    val ky = (motion.targetY + 0.02f * kotlin.math.cos(t * 3.14159f * 1.5f)).toFloat().coerceIn(0.05f, 0.95f)
+                    Point2D(kx, ky)
+                }
             }
 
             val isLock = motion.isTargetLockActive || motion.trackingMode == "target_lock"
@@ -768,6 +790,9 @@ class WorkspaceViewModel(
                         _uiState.value = _uiState.value.copy(overlays = _uiState.value.overlays + newOv)
                     }
                     _uiState.value = _uiState.value.copy(trackingMode = nextTracking)
+                    if (!motion.isTrackingDone && !motion.isTrackingRunning) {
+                        startMotionTracking()
+                    }
                     clip
                 }
                 ToolType.ROTOSCOPE -> {

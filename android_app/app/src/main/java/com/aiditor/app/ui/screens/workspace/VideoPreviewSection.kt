@@ -538,7 +538,10 @@ fun VideoPreviewSection(
 
                     ActiveTrackingMode.MOTION_TRACKING -> {
                         val motionParams = middleParams as? MiddleParameters.MotionTracking
-                        val normTime = (currentTimeSeconds / totalDurationSeconds.coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f)
+                        val trackingOverlay = overlays.find { it.type == OverlayType.TRACKING_EFFECT || it.type == OverlayType.STABILIZATION_EFFECT }
+                        val trackStart = trackingOverlay?.startTimeSeconds ?: 0.0
+                        val trackDur = (trackingOverlay?.durationSeconds ?: totalDurationSeconds).coerceAtLeast(0.1)
+                        val normTime = ((currentTimeSeconds - trackStart) / trackDur).coerceIn(0.0, 1.0).toFloat()
                         val kfs = motionParams?.trackingKeyframes ?: emptyList()
                         val (curX, curY) = if (motionParams != null && motionParams.isTrackingDone && kfs.isNotEmpty()) {
                             val idxF = normTime * (kfs.size - 1)
@@ -643,7 +646,10 @@ fun VideoPreviewSection(
 
                     ActiveTrackingMode.NONE -> {
                         if (activeTool == ToolType.MOTION_TRACKING && middleParams is MiddleParameters.MotionTracking) {
-                            val normTime = (currentTimeSeconds / totalDurationSeconds.coerceAtLeast(0.1)).toFloat().coerceIn(0f, 1f)
+                            val trackingOverlay = overlays.find { it.type == OverlayType.TRACKING_EFFECT || it.type == OverlayType.STABILIZATION_EFFECT }
+                            val trackStart = trackingOverlay?.startTimeSeconds ?: 0.0
+                            val trackDur = (trackingOverlay?.durationSeconds ?: totalDurationSeconds).coerceAtLeast(0.1)
+                            val normTime = ((currentTimeSeconds - trackStart) / trackDur).coerceIn(0.0, 1.0).toFloat()
                             val kfs = middleParams.trackingKeyframes
                             val (curX, curY) = if (middleParams.isTrackingDone && kfs.isNotEmpty()) {
                                 val idxF = normTime * (kfs.size - 1)

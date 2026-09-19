@@ -281,76 +281,82 @@ object McpBridge {
      */
     fun getUiStateSnapshot(): JSONObject {
         val root = JSONObject()
-        val activity = currentActivityRef?.get()
-        root.put("isActivityRunning", activity != null)
-        root.put("activityClass", activity?.localClassName ?: "None")
+        try {
+            val activity = currentActivityRef?.get()
+            root.put("isActivityRunning", activity != null)
+            root.put("activityClass", activity?.localClassName ?: "None")
 
-        val workspaceVm = workspaceViewModelRef?.get()
-        if (workspaceVm != null) {
-            val state = workspaceVm.uiState.value
-            val wsJson = JSONObject()
-            wsJson.put("active", true)
-            wsJson.put("projectId", state.project?.id ?: "")
-            wsJson.put("projectName", state.project?.name ?: "")
-            wsJson.put("currentTimeSeconds", state.currentTimeSeconds)
-            wsJson.put("totalDurationSeconds", state.totalDurationSeconds)
-            wsJson.put("isPlaying", state.isPlaying)
-            wsJson.put("isAudioMuted", state.isAudioMuted)
-            wsJson.put("aspectRatio", state.aspectRatio.name)
-            wsJson.put("activeTool", state.activeTool?.name ?: "NONE")
-            wsJson.put("trackingMode", state.trackingMode.name)
-            wsJson.put("selectedClipId", state.selectedClipId ?: "")
-            wsJson.put("canUndo", state.canUndo)
-            wsJson.put("canRedo", state.canRedo)
-            wsJson.put("showExportDialog", state.showExportDialog)
-            wsJson.put("showExportProgress", state.showExportProgressDialog)
+            val workspaceVm = workspaceViewModelRef?.get()
+            if (workspaceVm != null) {
+                val state = workspaceVm.uiState.value
+                val wsJson = JSONObject()
+                wsJson.put("active", true)
+                wsJson.put("projectId", state.project?.id ?: "")
+                wsJson.put("projectName", state.project?.name ?: "")
+                wsJson.put("currentTimeSeconds", state.currentTimeSeconds)
+                wsJson.put("totalDurationSeconds", state.totalDurationSeconds)
+                wsJson.put("isPlaying", state.isPlaying)
+                wsJson.put("isAudioMuted", state.isAudioMuted)
+                wsJson.put("aspectRatio", state.aspectRatio.name)
+                wsJson.put("activeTool", state.activeTool?.name ?: "NONE")
+                wsJson.put("trackingMode", state.trackingMode.name)
+                wsJson.put("selectedClipId", state.selectedClipId ?: "")
+                wsJson.put("canUndo", state.canUndo)
+                wsJson.put("canRedo", state.canRedo)
+                wsJson.put("showExportDialog", state.showExportDialog)
+                wsJson.put("showExportProgress", state.showExportProgressDialog)
 
-            val clipsArray = JSONArray()
-            state.clips.forEach { clip ->
-                val cObj = JSONObject()
-                cObj.put("id", clip.id)
-                cObj.put("title", clip.title)
-                cObj.put("inPoint", clip.inPointSeconds)
-                cObj.put("duration", clip.durationSeconds)
-                cObj.put("isImage", clip.isImage)
-                cObj.put("isSelected", clip.isSelected)
-                cObj.put("speedMultiplier", clip.speedMultiplier)
-                cObj.put("isOpticalFlowEnabled", clip.isOpticalFlowEnabled)
-                clipsArray.put(cObj)
+                val clipsArray = JSONArray()
+                state.clips.forEach { clip ->
+                    val cObj = JSONObject()
+                    cObj.put("id", clip.id)
+                    cObj.put("title", clip.title)
+                    cObj.put("inPoint", clip.inPointSeconds)
+                    cObj.put("duration", clip.durationSeconds)
+                    cObj.put("isImage", clip.isImage)
+                    cObj.put("isSelected", clip.isSelected)
+                    cObj.put("speedMultiplier", clip.speedMultiplier.toDouble())
+                    cObj.put("isOpticalFlowEnabled", clip.isOpticalFlowEnabled)
+                    clipsArray.put(cObj)
+                }
+                wsJson.put("clips", clipsArray)
+
+                val overlaysArray = JSONArray()
+                state.overlays.forEach { ov ->
+                    val oObj = JSONObject()
+                    oObj.put("id", ov.id)
+                    oObj.put("type", ov.type.name)
+                    oObj.put("label", ov.label)
+                    oObj.put("startTime", ov.startTimeSeconds)
+                    oObj.put("duration", ov.durationSeconds)
+                    overlaysArray.put(oObj)
+                }
+                wsJson.put("overlays", overlaysArray)
+                root.put("workspace", wsJson)
+            } else {
+                root.put("workspace", JSONObject().put("active", false))
             }
-            wsJson.put("clips", clipsArray)
 
-            val overlaysArray = JSONArray()
-            state.overlays.forEach { ov ->
-                val oObj = JSONObject()
-                oObj.put("id", ov.id)
-                oObj.put("type", ov.type.name)
-                oObj.put("label", ov.label)
-                oObj.put("startTime", ov.startTimeSeconds)
-                oObj.put("duration", ov.durationSeconds)
-                overlaysArray.put(oObj)
+            val mainMenuVm = mainMenuViewModelRef?.get()
+            if (mainMenuVm != null) {
+                val mmState = mainMenuVm.uiState.value
+                val mmJson = JSONObject()
+                mmJson.put("projectsCount", mmState.projects.size)
+                val projArray = JSONArray()
+                mmState.projects.forEach { p ->
+                    val pObj = JSONObject()
+                    pObj.put("id", p.id)
+                    pObj.put("name", p.name)
+                    pObj.put("duration", p.durationSeconds)
+                    projArray.put(pObj)
+                }
+                mmJson.put("projects", projArray)
+                root.put("mainMenu", mmJson)
             }
-            wsJson.put("overlays", overlaysArray)
-            root.put("workspace", wsJson)
-        } else {
-            root.put("workspace", JSONObject().put("active", false))
-        }
-
-        val mainMenuVm = mainMenuViewModelRef?.get()
-        if (mainMenuVm != null) {
-            val mmState = mainMenuVm.uiState.value
-            val mmJson = JSONObject()
-            mmJson.put("projectsCount", mmState.projects.size)
-            val projArray = JSONArray()
-            mmState.projects.forEach { p ->
-                val pObj = JSONObject()
-                pObj.put("id", p.id)
-                pObj.put("name", p.name)
-                pObj.put("duration", p.durationSeconds)
-                projArray.put(pObj)
-            }
-            mmJson.put("projects", projArray)
-            root.put("mainMenu", mmJson)
+        } catch (e: Throwable) {
+            root.put("status", "error")
+            root.put("errorMessage", e.message ?: "Unknown serialization error")
+            log("McpBridge", "Error serializing UI state: ${e.message}")
         }
 
         return root
@@ -398,6 +404,13 @@ object McpBridge {
                 "apply_tool" -> workspaceVm.applyCurrentToolToTimeline()
                 "show_export" -> workspaceVm.showExportDialog(true)
                 "hide_export" -> workspaceVm.showExportDialog(false)
+                "navigate_workspace" -> {
+                    val projId = params["projectId"]?.toString() ?: "default_proj"
+                    navControllerRef?.get()?.navigate(com.aiditor.app.ui.navigation.Screen.Workspace.createRoute(projId))
+                }
+                "navigate_main_menu" -> {
+                    navControllerRef?.get()?.popBackStack()
+                }
                 else -> log("McpBridge", "Unknown action: $actionName")
             }
         }
@@ -407,26 +420,12 @@ object McpBridge {
     }
 
     /**
-     * Retrieves recent application logs and system Logcat lines filtered for AIDITOR.
+     * Retrieves recent application logs and diagnostic events.
      */
     fun getRecentLogs(maxLines: Int = 50): List<String> {
         val result = mutableListOf<String>()
-        result.addAll(logBuffer.takeLast(maxLines))
-
-        try {
-            val process = ProcessBuilder("logcat", "-d", "-s", "AIDITOR:*", "McpBridge:*", "-t", maxLines.toString())
-                .redirectErrorStream(true)
-                .start()
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                if (!line.isNullOrBlank()) {
-                    result.add(line!!)
-                }
-            }
-            process.waitFor(1, TimeUnit.SECONDS)
-        } catch (_: Exception) {}
-
+        val recent = logBuffer.takeLast(maxLines.coerceAtMost(MAX_LOGS))
+        result.addAll(recent)
         return result
     }
 }

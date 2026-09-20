@@ -516,6 +516,7 @@ fun VideoPreviewSection(
                         val trackingOverlay = overlays.find { it.type == OverlayType.TRACKING_EFFECT || it.type == OverlayType.STABILIZATION_EFFECT }
                         val trackStart = trackingOverlay?.startTimeSeconds ?: 0.0
                         val trackDur = (trackingOverlay?.durationSeconds ?: totalDurationSeconds).coerceAtLeast(0.1)
+                        val normTime = ((currentTimeSeconds - trackStart) / trackDur).coerceIn(0.0, 1.0).toFloat()
                         val kfs = if (!motionParams?.trackingKeyframes.isNullOrEmpty()) {
                             motionParams!!.trackingKeyframes
                         } else if (!trackingOverlay?.trackingKeyframes.isNullOrEmpty()) {

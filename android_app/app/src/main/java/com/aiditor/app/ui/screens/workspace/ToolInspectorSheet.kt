@@ -563,13 +563,50 @@ private fun MotionTrackingControlsSection(
                         letterSpacing = 0.5.sp
                     )
                     Text(
-                        text = if (middleParams.isTrackingRunning) "Tracking frames & generating keyframes..."
-                        else if (middleParams.isTrackingDone) "Active on Track 2 • HUD & Target Synced"
-                        else "Position green reticle on preview to lock subject",
+                        text = if (middleParams.isTrackingRunning) "Tracking frames & propagating silhouette contour..."
+                        else if (middleParams.isTrackingDone) "Active on Track 2 • Silhouette Outliner Locked"
+                        else "Tap subject on preview to lock silhouette outline",
                         color = if (middleParams.isTrackingDone) Color(0xFFA5D6A7) else BwGreyLight,
                         fontSize = 10.sp
                     )
                 }
+            }
+
+            // Subject Outliner Status Badge
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF14241B))
+                    .border(1.dp, Color(0xFF2E7D32), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF00E676))
+                    )
+                    Text(
+                        text = "SMART SUBJECT OUTLINER",
+                        color = Color(0xFF00E676),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+                Text(
+                    text = "${middleParams.subjectContour.size.coerceAtLeast(24)} CONTOUR NODES",
+                    color = Color(0xFFA5D6A7),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace
+                )
             }
 
             if (middleParams.isTrackingRunning) {

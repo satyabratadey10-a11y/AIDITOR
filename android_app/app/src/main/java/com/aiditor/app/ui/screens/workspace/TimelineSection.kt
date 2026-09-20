@@ -363,6 +363,9 @@ fun TimelineSection(
                                     }
                                 }
 
+                                var lastSeekDispatchMs = 0L
+                                var lastTarget = startTime
+
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -386,11 +389,13 @@ fun TimelineSection(
                                             }
                                             currentOnSeek(target)
                                         } else {
-                                            // Drag completed: commit final trimmed state to project & undo stack
+                                            // Drag completed: commit final trimmed state or exact seek
                                             if (dragMode == 1 || dragMode == 2) {
                                                 selClip?.let {
                                                     currentOnTrimClipBoundaries(it.id, lastNewIn, lastNewOut, true)
                                                 }
+                                            } else if (dragMode == 0) {
+                                                currentOnSeek(lastTarget)
                                             }
                                         }
                                         break
@@ -423,10 +428,15 @@ fun TimelineSection(
                                                 }
                                             }
                                             else -> {
-                                                // Dragging playhead / timeline
+                                                // Dragging playhead / timeline with high-efficiency 40fps throttling
                                                 val deltaSec = -currentDragPx / pixelsPerSecond
                                                 val target = (startTime + deltaSec).coerceIn(0.0, currentDuration)
-                                                currentOnSeek(target)
+                                                lastTarget = target
+                                                val now = System.currentTimeMillis()
+                                                if (now - lastSeekDispatchMs >= 25) {
+                                                    lastSeekDispatchMs = now
+                                                    currentOnSeek(target)
+                                                }
                                             }
                                         }
                                     }

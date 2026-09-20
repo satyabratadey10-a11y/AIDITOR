@@ -404,4 +404,40 @@ class ProjectModelTest {
         assertEquals(100f, jobs.last().progressPercentage, 0.01f)
         assertTrue(jobs.last().outputPath.contains("roto_neon_saber"))
     }
+
+    @Test
+    fun testSubjectOutlinerDefaultContour() {
+        val contour = com.aiditor.app.util.SubjectOutliner.generateDefaultContour(
+            targetX = 0.5f,
+            targetY = 0.5f,
+            boxWidth = 0.16f,
+            boxHeight = 0.14f,
+            numRays = 24
+        )
+        assertEquals(24, contour.size)
+        contour.forEach { pt ->
+            assertTrue("Contour X should be in bounds", pt.x in 0.0f..1.0f)
+            assertTrue("Contour Y should be in bounds", pt.y in 0.0f..1.0f)
+        }
+    }
+
+    @Test
+    fun testMotionTrackerEngineAdvancedFallback() = runBlocking {
+        // Without an active video context, should return valid simulated keyframes and contours
+        val result = com.aiditor.app.util.MotionTrackerEngine.trackSubjectAdvanced(
+            context = null,
+            videoPath = "",
+            startTimeSeconds = 0.0,
+            durationSeconds = 5.0,
+            initialX = 0.5f,
+            initialY = 0.5f,
+            boxWidth = 0.16f,
+            boxHeight = 0.14f,
+            numSamples = 10
+        )
+        assertNotNull(result)
+        assertEquals(10, result.keyframes.size)
+        assertEquals(10, result.contours.size)
+        assertEquals(24, result.contours.first().size)
+    }
 }

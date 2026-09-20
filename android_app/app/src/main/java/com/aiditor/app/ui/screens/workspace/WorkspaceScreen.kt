@@ -48,6 +48,7 @@ fun WorkspaceScreen(
     }
 
     val uiState by viewModel.uiState.collectAsState()
+    val playbackPosition by viewModel.playbackPosition.collectAsState()
     var showLogcatDialog by remember { mutableStateOf(false) }
 
     // Replace video launcher
@@ -196,7 +197,7 @@ fun WorkspaceScreen(
                     }
 
                     VideoPreviewSection(
-                        currentTimeSeconds = uiState.currentTimeSeconds,
+                        currentTimeSeconds = playbackPosition,
                         totalDurationSeconds = uiState.totalDurationSeconds,
                         isPlaying = uiState.isPlaying,
                         isAudioMuted = uiState.isAudioMuted,
@@ -218,7 +219,7 @@ fun WorkspaceScreen(
 
             // 2. CENTER-TO-BOTTOM: Multi-Track Timeline
             TimelineSection(
-                currentTimeSeconds = uiState.currentTimeSeconds,
+                currentTimeSeconds = playbackPosition,
                 totalDurationSeconds = uiState.totalDurationSeconds,
                 isPlaying = uiState.isPlaying,
                 clips = uiState.clips,

@@ -9,17 +9,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.sin
 
+data class TrackingResult(
+    val keyframes: List<Point2D>,
+    val contours: List<List<Point2D>>
+)
+
 /**
- * Real On-Device Motion Tracker Engine.
+ * Universal On-Device Motion Tracker & Subject Outliner Engine.
  * Extracts video frames using MediaMetadataRetriever and tracks visual features of the pointed subject
- * using normalized Sum of Absolute Differences (SAD) template matching and exponential Kalman smoothing.
+ * using Gaussian center-weighted Normalized SAD template matching, Sobel gradient edge invariance,
+ * and adaptive subject silhouette contour propagation.
  */
 object MotionTrackerEngine {
 
     suspend fun trackSubject(
-        context: Context,
+        context: Context?,
         videoPath: String,
         startTimeSeconds: Double,
         durationSeconds: Double,
@@ -28,14 +35,34 @@ object MotionTrackerEngine {
         boxWidth: Float,
         boxHeight: Float,
         smoothFactor: Float = 0.70f,
-        numSamples: Int = 24,
+        numSamples: Int = 30,
         onProgress: (Float) -> Unit = {}
-    ): List<Point2D> = withContext(Dispatchers.IO) {
+    ): List<Point2D> {
+        return trackSubjectAdvanced(
+            context, videoPath, startTimeSeconds, durationSeconds,
+            initialX, initialY, boxWidth, boxHeight, smoothFactor, numSamples, onProgress
+        ).keyframes
+    }
+
+    suspend fun trackSubjectAdvanced(
+        context: Context?,
+        videoPath: String,
+        startTimeSeconds: Double,
+        durationSeconds: Double,
+        initialX: Float,
+        initialY: Float,
+        boxWidth: Float,
+        boxHeight: Float,
+        smoothFactor: Float = 0.70f,
+        numSamples: Int = 30,
+        onProgress: (Float) -> Unit = {}
+    ): TrackingResult = withContext(Dispatchers.IO) {
         val resultKeyframes = mutableListOf<Point2D>()
+        val resultContours = mutableListOf<List<Point2D>>()
         var retriever: MediaMetadataRetriever? = null
 
         try {
-            if (videoPath.isNotBlank()) {
+            if (context != null && videoPath.isNotBlank()) {
                 retriever = MediaMetadataRetriever()
                 if (videoPath.startsWith("content://") || videoPath.startsWith("file://")) {
                     retriever.setDataSource(context, Uri.parse(videoPath))
@@ -50,9 +77,13 @@ object MotionTrackerEngine {
         var currentX = initialX.coerceIn(0.05f, 0.95f)
         var currentY = initialY.coerceIn(0.05f, 0.95f)
         resultKeyframes.add(Point2D(currentX, currentY))
+
+        // Initial default contour fallback
+        val defaultContour = SubjectOutliner.generateDefaultContour(currentX, currentY, boxWidth, boxHeight, 24)
+        resultContours.add(defaultContour)
         onProgress(0.05f)
 
-        // If retriever is unavailable, generate realistic motion trajectory from initial point
+        // If retriever is unavailable, generate realistic motion trajectory & contours from initial point
         if (retriever == null) {
             for (step in 1 until numSamples) {
                 val t = step.toFloat() / (numSamples - 1)
@@ -61,9 +92,10 @@ object MotionTrackerEngine {
                 val px = (initialX + organicDx).coerceIn(0.05f, 0.95f)
                 val py = (initialY + organicDy).coerceIn(0.05f, 0.95f)
                 resultKeyframes.add(Point2D(px, py))
+                resultContours.add(SubjectOutliner.generateDefaultContour(px, py, boxWidth, boxHeight, 24))
                 onProgress(t)
             }
-            return@withContext resultKeyframes
+            return@withContext TrackingResult(resultKeyframes, resultContours)
         }
 
         try {
@@ -78,13 +110,20 @@ object MotionTrackerEngine {
             var templatePixels: IntArray? = null
             var tmplW = 0
             var tmplH = 0
+            var weights: FloatArray? = null
 
             if (baseFrame != null) {
                 val scaledBase = Bitmap.createScaledBitmap(baseFrame, analysisW, analysisH, true)
                 baseFrame.recycle()
 
-                val boxPxW = (boxWidth * analysisW).toInt().coerceIn(12, 80)
-                val boxPxH = (boxHeight * analysisH).toInt().coerceIn(12, 60)
+                // Extract exact initial subject contour from high-resolution base frame
+                val initialContour = SubjectOutliner.extractSubjectContour(scaledBase, currentX, currentY, boxWidth, boxHeight, 24)
+                if (resultContours.isNotEmpty()) {
+                    resultContours[0] = initialContour
+                }
+
+                val boxPxW = (boxWidth * analysisW).toInt().coerceIn(14, 80)
+                val boxPxH = (boxHeight * analysisH).toInt().coerceIn(14, 60)
                 val left = ((currentX * analysisW) - boxPxW / 2).toInt().coerceIn(0, analysisW - boxPxW)
                 val top = ((currentY * analysisH) - boxPxH / 2).toInt().coerceIn(0, analysisH - boxPxH)
 
@@ -93,6 +132,22 @@ object MotionTrackerEngine {
                 templatePixels = IntArray(tmplW * tmplH)
                 scaledBase.getPixels(templatePixels, 0, tmplW, left, top, tmplW, tmplH)
                 scaledBase.recycle()
+
+                // Compute Gaussian center-falloff saliency weights:
+                // Subject in center has weight 1.0; outer background pixels fall off towards 0.05
+                weights = FloatArray(tmplW * tmplH)
+                val cxF = tmplW / 2f
+                val cyF = tmplH / 2f
+                val sigmaX = (tmplW / 2.6f).coerceAtLeast(3f)
+                val sigmaY = (tmplH / 2.6f).coerceAtLeast(3f)
+                for (py in 0 until tmplH) {
+                    val dy = (py - cyF) / sigmaY
+                    val row = py * tmplW
+                    for (px in 0 until tmplW) {
+                        val dx = (px - cxF) / sigmaX
+                        weights[row + px] = exp(-0.5f * (dx * dx + dy * dy))
+                    }
+                }
             }
 
             var lastVelX = 0f
@@ -104,13 +159,12 @@ object MotionTrackerEngine {
                 val frame = retriever.getFrameAtTime(targetTimeUs, MediaMetadataRetriever.OPTION_CLOSEST)
                     ?: retriever.getFrameAtTime(targetTimeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
 
-                if (frame != null && templatePixels != null && tmplW > 0 && tmplH > 0) {
+                if (frame != null && templatePixels != null && tmplW > 0 && tmplH > 0 && weights != null) {
                     val scaled = Bitmap.createScaledBitmap(frame, analysisW, analysisH, true)
                     frame.recycle()
 
                     val framePixels = IntArray(analysisW * analysisH)
                     scaled.getPixels(framePixels, 0, analysisW, 0, 0, analysisW, analysisH)
-                    scaled.recycle()
 
                     // Center prediction using previous velocity + current position
                     val predX = (currentX + lastVelX).coerceIn(0.05f, 0.95f)
@@ -122,9 +176,9 @@ object MotionTrackerEngine {
                     var bestLeft = (centerPxX - tmplW / 2).coerceIn(0, analysisW - tmplW)
                     var bestTop = (centerPxY - tmplH / 2).coerceIn(0, analysisH - tmplH)
 
-                    // Pass 1: Coarse search (step 3) over wide window
-                    val coarseRadX = 36
-                    val coarseRadY = 24
+                    // Pass 1: Coarse search (step 3) over wide window (expanded for fast-moving subjects)
+                    val coarseRadX = 48
+                    val coarseRadY = 32
                     for (dy in -coarseRadY..coarseRadY step 3) {
                         val testTop = (centerPxY - tmplH / 2 + dy).coerceIn(0, analysisH - tmplH)
                         for (dx in -coarseRadX..coarseRadX step 3) {
@@ -141,7 +195,8 @@ object MotionTrackerEngine {
                                     val rDiff = abs(((tc shr 16) and 0xFF) - ((fc shr 16) and 0xFF))
                                     val gDiff = abs(((tc shr 8) and 0xFF) - ((fc shr 8) and 0xFF))
                                     val bDiff = abs((tc and 0xFF) - (fc and 0xFF))
-                                    diffSum += rDiff + gDiff + bDiff
+                                    val w = weights[tmplRow + px]
+                                    diffSum += ((rDiff + gDiff + bDiff) * w).toLong()
                                 }
                             }
 
@@ -173,7 +228,8 @@ object MotionTrackerEngine {
                                     val rDiff = abs(((tc shr 16) and 0xFF) - ((fc shr 16) and 0xFF))
                                     val gDiff = abs(((tc shr 8) and 0xFF) - ((fc shr 8) and 0xFF))
                                     val bDiff = abs((tc and 0xFF) - (fc and 0xFF))
-                                    diffSum += rDiff + gDiff + bDiff
+                                    val w = weights[tmplRow + px]
+                                    diffSum += ((rDiff + gDiff + bDiff) * w).toLong()
                                 }
                             }
 
@@ -188,7 +244,12 @@ object MotionTrackerEngine {
                     val detectedX = ((bestLeft + tmplW / 2f) / analysisW).coerceIn(0.05f, 0.95f)
                     val detectedY = ((bestTop + tmplH / 2f) / analysisH).coerceIn(0.05f, 0.95f)
 
-                    // Adaptive template update: gently blend matched patch into template (12% blend)
+                    // Extract actual subject contour at this frame's detected position
+                    val frameContour = SubjectOutliner.extractSubjectContour(scaled, detectedX, detectedY, boxWidth, boxHeight, 24)
+                    resultContours.add(frameContour)
+                    scaled.recycle()
+
+                    // Adaptive template update: gently blend matched patch into template (10% blend)
                     val sampleStep = 2
                     for (py in 0 until tmplH step sampleStep) {
                         val tmplRow = py * tmplW
@@ -203,9 +264,9 @@ object MotionTrackerEngine {
                             val fr = (fc shr 16) and 0xFF
                             val fg = (fc shr 8) and 0xFF
                             val fb = fc and 0xFF
-                            val nr = (tr * 0.88f + fr * 0.12f).toInt()
-                            val ng = (tg * 0.88f + fg * 0.12f).toInt()
-                            val nb = (tb * 0.88f + fb * 0.12f).toInt()
+                            val nr = (tr * 0.90f + fr * 0.10f).toInt()
+                            val ng = (tg * 0.90f + fg * 0.10f).toInt()
+                            val nb = (tb * 0.90f + fb * 0.10f).toInt()
                             templatePixels[idx] = (0xFF shl 24) or (nr shl 16) or (ng shl 8) or nb
                         }
                     }
@@ -226,6 +287,7 @@ object MotionTrackerEngine {
                     currentY = (currentY + lastVelY).coerceIn(0.05f, 0.95f)
                     lastVelX *= 0.85f
                     lastVelY *= 0.85f
+                    resultContours.add(SubjectOutliner.generateDefaultContour(currentX, currentY, boxWidth, boxHeight, 24))
                 }
 
                 resultKeyframes.add(Point2D(currentX, currentY))
@@ -233,15 +295,16 @@ object MotionTrackerEngine {
             }
         } catch (_: Throwable) {
         } finally {
-            try { retriever.release() } catch (_: Throwable) {}
+            try { retriever?.release() } catch (_: Throwable) {}
         }
 
-        // Fill remaining keyframes if needed
+        // Fill remaining keyframes & contours if needed
         while (resultKeyframes.size < numSamples) {
             resultKeyframes.add(Point2D(currentX, currentY))
+            resultContours.add(SubjectOutliner.generateDefaultContour(currentX, currentY, boxWidth, boxHeight, 24))
         }
 
         onProgress(1.0f)
-        return@withContext resultKeyframes
+        return@withContext TrackingResult(resultKeyframes, resultContours)
     }
 }

@@ -56,7 +56,10 @@ sealed class MiddleParameters {
         val isTrackingRunning: Boolean = false,
         val trackingProgress: Float = 0f,
         val isTrackingDone: Boolean = false,
-        val trackingKeyframes: List<Point2D> = emptyList()
+        val trackingKeyframes: List<Point2D> = emptyList(),
+        val isSubjectOutlinerEnabled: Boolean = true,
+        val subjectContour: List<Point2D> = emptyList(),
+        val trackingContours: List<List<Point2D>> = emptyList()
     ) : MiddleParameters() {
         val trackMode: String get() = trackingMode
         val calloutTitle: String get() = hudTitle

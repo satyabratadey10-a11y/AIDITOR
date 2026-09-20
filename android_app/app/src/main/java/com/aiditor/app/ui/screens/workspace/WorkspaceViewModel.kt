@@ -50,6 +50,9 @@ class WorkspaceViewModel(
     private val _uiState = MutableStateFlow(WorkspaceUiState())
     val uiState: StateFlow<WorkspaceUiState> = _uiState.asStateFlow()
 
+    private val _playbackPosition = MutableStateFlow(0.0)
+    val playbackPosition: StateFlow<Double> = _playbackPosition.asStateFlow()
+
     private var playbackJob: Job? = null
     private var exportJobSubscription: Job? = null
 
@@ -202,17 +205,18 @@ class WorkspaceViewModel(
     }
 
     fun onPlaybackTimeUpdate(posSec: Double) {
-        _uiState.value = _uiState.value.copy(
-            currentTimeSeconds = posSec.coerceIn(0.0, _uiState.value.totalDurationSeconds)
-        )
+        val clamped = posSec.coerceIn(0.0, _uiState.value.totalDurationSeconds)
+        _playbackPosition.value = clamped
     }
 
     fun onPlaybackEnded() {
         playbackJob?.cancel()
         playbackJob = null
+        val end = _uiState.value.totalDurationSeconds
+        _playbackPosition.value = end
         _uiState.value = _uiState.value.copy(
             isPlaying = false,
-            currentTimeSeconds = _uiState.value.totalDurationSeconds
+            currentTimeSeconds = end
         )
     }
 
@@ -220,12 +224,14 @@ class WorkspaceViewModel(
         val willPlay = !_uiState.value.isPlaying
         
         // If at the end of the timeline, restart smoothly from beginning
-        val startTime = if (willPlay && _uiState.value.currentTimeSeconds >= (_uiState.value.totalDurationSeconds - 0.05)) {
+        val currentPos = _playbackPosition.value
+        val startTime = if (willPlay && currentPos >= (_uiState.value.totalDurationSeconds - 0.05)) {
             0.0
         } else {
-            _uiState.value.currentTimeSeconds
+            currentPos
         }
 
+        _playbackPosition.value = startTime
         _uiState.value = _uiState.value.copy(
             isPlaying = willPlay,
             currentTimeSeconds = startTime
@@ -235,22 +241,25 @@ class WorkspaceViewModel(
         if (willPlay) {
             playbackJob = viewModelScope.launch {
                 var lastTimeNs = System.nanoTime()
+                var lastUiUpdateMs = System.currentTimeMillis()
                 while (_uiState.value.isPlaying) {
-                    delay(33) // ~30 FPS smooth clock (prevents GC thrashing & Compose lag)
+                    delay(16) // Smooth 60 FPS clock for GPU Canvas and timeline playhead
                     val nowNs = System.nanoTime()
-                    val dt = ((nowNs - lastTimeNs) / 1_000_000_000.0).coerceIn(0.010, 0.080)
+                    val dt = ((nowNs - lastTimeNs) / 1_000_000_000.0).coerceIn(0.005, 0.050)
                     lastTimeNs = nowNs
 
-                    val nextTime = _uiState.value.currentTimeSeconds + dt
+                    val nextTime = _playbackPosition.value + dt
                     if (nextTime >= _uiState.value.totalDurationSeconds) {
-                        // Reached end of video timeline: STOP PLAYBACK IMMEDIATELY
-                        _uiState.value = _uiState.value.copy(
-                            currentTimeSeconds = _uiState.value.totalDurationSeconds,
-                            isPlaying = false
-                        )
+                        onPlaybackEnded()
                         break
                     } else {
-                        _uiState.value = _uiState.value.copy(currentTimeSeconds = nextTime)
+                        _playbackPosition.value = nextTime
+                        // Throttle root UiState updates to ~5 Hz to keep UI thread completely free from GC/recomposition lag
+                        val nowMs = System.currentTimeMillis()
+                        if (nowMs - lastUiUpdateMs >= 200) {
+                            lastUiUpdateMs = nowMs
+                            _uiState.value = _uiState.value.copy(currentTimeSeconds = nextTime)
+                        }
                     }
                 }
             }
@@ -259,6 +268,7 @@ class WorkspaceViewModel(
 
     fun seekTo(timeSeconds: Double) {
         val clamped = timeSeconds.coerceIn(0.0, _uiState.value.totalDurationSeconds)
+        _playbackPosition.value = clamped
         _uiState.value = _uiState.value.copy(currentTimeSeconds = clamped)
     }
 
@@ -512,15 +522,44 @@ class WorkspaceViewModel(
     fun updateTrackingTarget(targetX: Float, targetY: Float, boxW: Float, boxH: Float) {
         val motion = (_uiState.value.middleParams as? MiddleParameters.MotionTracking)
             ?: MiddleParameters.MotionTracking()
+        val defaultContour = com.aiditor.app.util.SubjectOutliner.generateDefaultContour(
+            targetX, targetY, boxW, boxH, 24
+        )
         val updatedMotion = motion.copy(
             targetX = targetX.coerceIn(0.05f, 0.95f),
             targetY = targetY.coerceIn(0.05f, 0.95f),
             boxWidth = boxW.coerceIn(0.04f, 0.8f),
             boxHeight = boxH.coerceIn(0.04f, 0.8f),
             isTrackingDone = false,
-            trackingKeyframes = emptyList()
+            trackingKeyframes = emptyList(),
+            subjectContour = defaultContour,
+            trackingContours = emptyList()
         )
         _uiState.value = _uiState.value.copy(middleParams = updatedMotion)
+
+        // Asynchronously extract exact subject contour from current video frame
+        val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
+        val videoPath = selClip?.sourcePath?.ifBlank { null } ?: _uiState.value.project?.videoPath ?: ""
+        val context = com.aiditor.app.AiditorApp.instance
+        if (context != null && videoPath.isNotBlank()) {
+            viewModelScope.launch {
+                val contour = com.aiditor.app.util.SubjectOutliner.extractContourFromVideo(
+                    context = context,
+                    videoPath = videoPath,
+                    timeSeconds = _playbackPosition.value,
+                    targetX = targetX,
+                    targetY = targetY,
+                    boxWidth = boxW,
+                    boxHeight = boxH
+                )
+                val curMotion = _uiState.value.middleParams as? MiddleParameters.MotionTracking
+                if (curMotion != null) {
+                    _uiState.value = _uiState.value.copy(
+                        middleParams = curMotion.copy(subjectContour = contour)
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -531,7 +570,7 @@ class WorkspaceViewModel(
         val motion = (_uiState.value.middleParams as? MiddleParameters.MotionTracking)
             ?: MiddleParameters.MotionTracking()
         val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
-        val clipStart = selClip?.inPointSeconds ?: _uiState.value.currentTimeSeconds
+        val clipStart = selClip?.inPointSeconds ?: _playbackPosition.value
         val clipDur = selClip?.durationSeconds ?: 5.0
         val videoPath = selClip?.sourcePath?.ifBlank { null } ?: _uiState.value.project?.videoPath ?: ""
         val context = com.aiditor.app.AiditorApp.instance
@@ -545,8 +584,8 @@ class WorkspaceViewModel(
                 )
             )
 
-            val keyframes = if (context != null && videoPath.isNotBlank()) {
-                com.aiditor.app.util.MotionTrackerEngine.trackSubject(
+            val trackingResult = if (context != null && videoPath.isNotBlank()) {
+                com.aiditor.app.util.MotionTrackerEngine.trackSubjectAdvanced(
                     context = context,
                     videoPath = videoPath,
                     startTimeSeconds = clipStart,
@@ -573,13 +612,20 @@ class WorkspaceViewModel(
                         middleParams = curMotion.copy(trackingProgress = pct)
                     )
                 }
-                (0..30).map { i ->
+                val kfs = (0..30).map { i ->
                     val t = i / 30f
                     val kx = (motion.targetX + 0.03f * kotlin.math.sin(t * 3.14159f * 2f)).toFloat().coerceIn(0.05f, 0.95f)
                     val ky = (motion.targetY + 0.02f * kotlin.math.cos(t * 3.14159f * 1.5f)).toFloat().coerceIn(0.05f, 0.95f)
                     Point2D(kx, ky)
                 }
+                val cnts = kfs.map { p ->
+                    com.aiditor.app.util.SubjectOutliner.generateDefaultContour(p.x, p.y, motion.boxWidth, motion.boxHeight, 24)
+                }
+                com.aiditor.app.util.TrackingResult(kfs, cnts)
             }
+
+            val keyframes = trackingResult.keyframes
+            val contours = trackingResult.contours
 
             val isLock = motion.isTargetLockActive || motion.trackingMode == "target_lock"
             val newOverlay = TimelineOverlay(
@@ -592,7 +638,9 @@ class WorkspaceViewModel(
                 targetX = motion.targetX,
                 targetY = motion.targetY,
                 boxWidth = motion.boxWidth,
-                boxHeight = motion.boxHeight
+                boxHeight = motion.boxHeight,
+                subjectContour = contours.firstOrNull() ?: emptyList(),
+                trackingContours = contours
             )
 
             val nextTrackingMode = if (isLock) ActiveTrackingMode.MOTION_STABILIZATION else ActiveTrackingMode.MOTION_TRACKING
@@ -607,7 +655,9 @@ class WorkspaceViewModel(
                     isTrackingRunning = false,
                     trackingProgress = 1.0f,
                     isTrackingDone = true,
-                    trackingKeyframes = keyframes
+                    trackingKeyframes = keyframes,
+                    subjectContour = contours.firstOrNull() ?: emptyList(),
+                    trackingContours = contours
                 )
             )
             persistCurrentProject()

@@ -66,7 +66,9 @@ data class TimelineOverlay(
     val targetX: Float = 0.5f,
     val targetY: Float = 0.5f,
     val boxWidth: Float = 0.16f,
-    val boxHeight: Float = 0.14f
+    val boxHeight: Float = 0.14f,
+    val subjectContour: List<Point2D> = emptyList(),
+    val trackingContours: List<List<Point2D>> = emptyList()
 )
 
 enum class AspectRatioMode(val label: String, val ratio: Float?) {

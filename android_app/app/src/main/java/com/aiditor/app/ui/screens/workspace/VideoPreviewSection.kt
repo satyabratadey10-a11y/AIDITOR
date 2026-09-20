@@ -35,6 +35,9 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -43,6 +46,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.exoplayer.SeekParameters
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -221,25 +225,32 @@ fun VideoPreviewSection(
     LaunchedEffect(isPlaying, isBlankSpace, isImage, effectiveSourcePath) {
         val player = exoPlayer ?: return@LaunchedEffect
         if (isPlaying && !isBlankSpace && !isImage && !effectiveSourcePath.isNullOrBlank()) {
-            val targetMs = (clipLocalSeconds * 1000).toLong()
-            if (kotlin.math.abs(player.currentPosition - targetMs) > 250) {
-                player.seekTo(targetMs)
-            }
+            player.setSeekParameters(SeekParameters.EXACT)
             val clipSpeed = (activeClip?.speedMultiplier?.toFloat() ?: 1.0f).coerceIn(0.1f, 8.0f)
             player.setPlaybackSpeed(clipSpeed)
+            val targetMs = (clipLocalSeconds * 1000).toLong()
+            if (kotlin.math.abs(player.currentPosition - targetMs) > 300) {
+                player.seekTo(targetMs)
+            }
             player.play()
         } else {
             player.pause()
         }
     }
 
-    // Position sync while paused or seeking
+    // High-efficiency position sync while paused or scrubbing (throttled to prevent decoder stall)
+    var lastScrubSeekMs by remember { mutableLongStateOf(0L) }
     LaunchedEffect(clipLocalSeconds) {
         if (!isPlaying && !isBlankSpace && !isImage && !effectiveSourcePath.isNullOrBlank()) {
-            exoPlayer?.let { player ->
-                val targetMs = (clipLocalSeconds * 1000).toLong()
-                if (kotlin.math.abs(player.currentPosition - targetMs) > 100) {
-                    player.seekTo(targetMs)
+            val now = System.currentTimeMillis()
+            if (now - lastScrubSeekMs >= 35) { // Max ~28 seeks/sec prevents audio/video buffer thrashing
+                lastScrubSeekMs = now
+                exoPlayer?.let { player ->
+                    player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                    val targetMs = (clipLocalSeconds * 1000).toLong()
+                    if (kotlin.math.abs(player.currentPosition - targetMs) > 50) {
+                        player.seekTo(targetMs)
+                    }
                 }
             }
         }
@@ -386,6 +397,7 @@ fun VideoPreviewSection(
                     drawContext.canvas.nativeCanvas.drawBitmap(bm, srcRect, dstRect, paint)
                 }
             } else if (exoPlayer != null) {
+                var lastAppliedGrade by remember { mutableStateOf<MiddleParameters.ColorGrade?>(null) }
                 AndroidView(
                     factory = { ctx ->
                         val view = LayoutInflater.from(ctx).inflate(R.layout.view_player, null) as PlayerView
@@ -398,48 +410,25 @@ fun VideoPreviewSection(
                         view
                     },
                     update = { view ->
-                        view.player = exoPlayer
-                        val texture = view.videoSurfaceView as? TextureView
-                        if (texture != null && middleParams is MiddleParameters.ColorGrade) {
-                            val cm = buildColorMatrix(middleParams)
-                            val paint = Paint().apply {
-                                colorFilter = ColorMatrixColorFilter(cm)
+                        if (view.player != exoPlayer) {
+                            view.player = exoPlayer
+                        }
+                        val grade = middleParams as? MiddleParameters.ColorGrade
+                        if (grade != lastAppliedGrade) {
+                            lastAppliedGrade = grade
+                            val texture = view.videoSurfaceView as? TextureView
+                            if (texture != null && grade != null && (grade.brightness != 0f || grade.contrast != 1f || grade.saturation != 1f || grade.filterPreset != "original")) {
+                                val cm = buildColorMatrix(grade)
+                                val paint = Paint().apply {
+                                    colorFilter = ColorMatrixColorFilter(cm)
+                                }
+                                texture.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+                            } else if (texture != null) {
+                                texture.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                             }
-                            texture.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
-                        } else if (texture != null) {
-                            texture.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawWithContent {
-                            drawContent()
-                            // Real-time Compose Color Grade fallback / tint overlay
-                            if (middleParams is MiddleParameters.ColorGrade) {
-                                val b = middleParams.brightness
-                                if (b > 0.05f) {
-                                    drawRect(
-                                        Color.White.copy(alpha = b.coerceIn(0f, 0.7f)),
-                                        blendMode = BlendMode.Screen
-                                    )
-                                } else if (b < -0.05f) {
-                                    drawRect(
-                                        Color.Black.copy(alpha = (-b).coerceIn(0f, 0.7f)),
-                                        blendMode = BlendMode.Darken
-                                    )
-                                }
-                                val c = middleParams.contrast
-                                if (c > 1.05f) {
-                                    drawRect(
-                                        Color.White.copy(alpha = ((c - 1f) * 0.35f).coerceIn(0f, 0.5f)),
-                                        blendMode = BlendMode.Overlay
-                                    )
-                                }
-                                if (middleParams.saturation <= 0.05f || middleParams.filterPreset == "bw_cinema") {
-                                    drawRect(Color.Black, blendMode = BlendMode.Saturation)
-                                }
-                            }
-                        }
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 // Procedural video background fallback
@@ -555,6 +544,69 @@ fun VideoPreviewSection(
                         val themeHex = if (isStabilize) "#FFD54F" else "#00E676"
                         val strokeW = 4f
 
+                        // ==========================================
+                        // SUBJECT OUTLINER: Glowing Neon Silhouette
+                        // ==========================================
+                        val contoursList = if (!motionParams?.trackingContours.isNullOrEmpty()) {
+                            motionParams!!.trackingContours
+                        } else if (!trackingOverlay?.trackingContours.isNullOrEmpty()) {
+                            trackingOverlay!!.trackingContours
+                        } else {
+                            emptyList()
+                        }
+
+                        val activeContour = if (contoursList.isNotEmpty()) {
+                            val cIdx = (normTime * (contoursList.size - 1)).toInt().coerceIn(0, contoursList.size - 1)
+                            contoursList[cIdx]
+                        } else {
+                            val staticContour = motionParams?.subjectContour ?: trackingOverlay?.subjectContour ?: emptyList()
+                            if (staticContour.isNotEmpty()) {
+                                val origX = motionParams?.targetX ?: trackingOverlay?.targetX ?: curX
+                                val origY = motionParams?.targetY ?: trackingOverlay?.targetY ?: curY
+                                val dx = curX - origX
+                                val dy = curY - origY
+                                staticContour.map { pt -> Point2D(pt.x + dx, pt.y + dy) }
+                            } else {
+                                com.aiditor.app.util.SubjectOutliner.generateDefaultContour(curX, curY, boxWParam, boxHParam, 24)
+                            }
+                        }
+
+                        if (activeContour.isNotEmpty()) {
+                            val contourPath = Path()
+                            contourPath.moveTo(activeContour[0].x * w, activeContour[0].y * h)
+                            for (i in 1 until activeContour.size) {
+                                contourPath.lineTo(activeContour[i].x * w, activeContour[i].y * h)
+                            }
+                            contourPath.close()
+
+                            // 1. Translucent glowing fill of the detected subject
+                            drawPath(contourPath, color = themeColor.copy(alpha = 0.22f))
+
+                            // 2. Outer soft glow bloom
+                            drawPath(
+                                contourPath,
+                                color = themeColor.copy(alpha = 0.45f),
+                                style = Stroke(width = 6.5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                            )
+
+                            // 3. Crisp neon subject outline
+                            drawPath(
+                                contourPath,
+                                color = themeColor,
+                                style = Stroke(width = 3.0f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                            )
+
+                            // 4. Vertex node dots along the silhouette contour
+                            activeContour.forEachIndexed { idx, pt ->
+                                if (idx % 2 == 0) {
+                                    val vx = pt.x * w
+                                    val vy = pt.y * h
+                                    drawCircle(color = Color.White, radius = 3.0f, center = Offset(vx, vy))
+                                    drawCircle(color = themeColor, radius = 5.0f, center = Offset(vx, vy), style = Stroke(1.5f))
+                                }
+                            }
+                        }
+
                         // Corner Reticle Brackets [ ]
                         drawLine(themeColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
                         drawLine(themeColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)
@@ -603,11 +655,11 @@ fun VideoPreviewSection(
                         }
 
                         // HUD Callout Leader Line & Title
-                        val calloutTitle = if (isStabilize) "STABILIZE LOCK" else (motionParams?.hudTitle ?: "TARGET LOCKED")
+                        val calloutTitle = if (isStabilize) "STABILIZE LOCK" else (motionParams?.hudTitle ?: "SUBJECT LOCKED")
                         val calloutSub = if (motionParams?.isTrackingDone == true) {
-                            if (isStabilize) "STABILIZATION ACTIVE • 60 FPS" else "TRACKING ACTIVE • 60 FPS"
+                            if (isStabilize) "STABILIZATION • ${activeContour.size} PTS" else "TRACKING • ${activeContour.size} CONTOUR PTS"
                         } else {
-                            if (isStabilize) "DRAG TO SUBJECT TO STABILIZE" else (motionParams?.hudSubtitle ?: "DRAG TO SUBJECT")
+                            if (isStabilize) "DRAG TO SUBJECT TO STABILIZE" else "SUBJECT ACQUIRED • SILHOUETTE LOCKED"
                         }
                         val p1 = Offset(right, top)
                         val p2 = Offset(right + 20f, top - 20f)
@@ -665,6 +717,44 @@ fun VideoPreviewSection(
                             val greenColor = Color(0xFF00E676)
                             val cornerLen = (bw * 0.25f).coerceIn(12f, 30f)
                             val strokeW = 4f
+
+                            // SUBJECT OUTLINER: Glowing Neon Silhouette
+                            val staticContour = if (middleParams.subjectContour.isNotEmpty()) {
+                                val dx = curX - middleParams.targetX
+                                val dy = curY - middleParams.targetY
+                                middleParams.subjectContour.map { pt -> Point2D(pt.x + dx, pt.y + dy) }
+                            } else {
+                                com.aiditor.app.util.SubjectOutliner.generateDefaultContour(curX, curY, middleParams.boxWidth, middleParams.boxHeight, 24)
+                            }
+
+                            if (staticContour.isNotEmpty()) {
+                                val contourPath = Path()
+                                contourPath.moveTo(staticContour[0].x * w, staticContour[0].y * h)
+                                for (i in 1 until staticContour.size) {
+                                    contourPath.lineTo(staticContour[i].x * w, staticContour[i].y * h)
+                                }
+                                contourPath.close()
+
+                                drawPath(contourPath, color = greenColor.copy(alpha = 0.22f))
+                                drawPath(
+                                    contourPath,
+                                    color = greenColor.copy(alpha = 0.45f),
+                                    style = Stroke(width = 6.5f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                                drawPath(
+                                    contourPath,
+                                    color = greenColor,
+                                    style = Stroke(width = 3.0f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                                )
+                                staticContour.forEachIndexed { idx, pt ->
+                                    if (idx % 2 == 0) {
+                                        val vx = pt.x * w
+                                        val vy = pt.y * h
+                                        drawCircle(color = Color.White, radius = 3.0f, center = Offset(vx, vy))
+                                        drawCircle(color = greenColor, radius = 5.0f, center = Offset(vx, vy), style = Stroke(1.5f))
+                                    }
+                                }
+                            }
 
                             drawLine(greenColor, Offset(left, top), Offset(left + cornerLen, top), strokeW)
                             drawLine(greenColor, Offset(left, top), Offset(left, top + cornerLen), strokeW)

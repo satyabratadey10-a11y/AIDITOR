@@ -6,7 +6,9 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.DashPathEffect
 import android.graphics.Paint
+import android.graphics.RenderEffect
 import android.net.Uri
+import android.os.Build
 import android.view.LayoutInflater
 import android.view.TextureView
 import android.view.View
@@ -418,14 +420,25 @@ fun VideoPreviewSection(
                         if (grade != lastAppliedGrade) {
                             lastAppliedGrade = grade
                             val texture = view.videoSurfaceView as? TextureView
-                            if (texture != null && grade != null && (grade.brightness != 0f || grade.contrast != 1f || grade.saturation != 1f || grade.filterPreset != "original")) {
+                            if (texture != null && texture.layerType != View.LAYER_TYPE_NONE) {
+                                texture.setLayerType(View.LAYER_TYPE_NONE, null)
+                            }
+
+                            if (grade != null && (grade.brightness != 0f || grade.contrast != 1f || grade.saturation != 1f || grade.filterPreset != "original")) {
                                 val cm = buildColorMatrix(grade)
-                                val paint = Paint().apply {
-                                    colorFilter = ColorMatrixColorFilter(cm)
+                                val filter = ColorMatrixColorFilter(cm)
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    view.setRenderEffect(RenderEffect.createColorFilterEffect(filter))
+                                } else {
+                                    val paint = Paint().apply { colorFilter = filter }
+                                    view.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
                                 }
-                                texture.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
-                            } else if (texture != null) {
-                                texture.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                            } else {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                    view.setRenderEffect(null)
+                                } else {
+                                    view.setLayerType(View.LAYER_TYPE_NONE, null)
+                                }
                             }
                         }
                     },
@@ -557,8 +570,19 @@ fun VideoPreviewSection(
                         }
 
                         val activeContour = if (contoursList.isNotEmpty()) {
-                            val cIdx = (normTime * (contoursList.size - 1)).toInt().coerceIn(0, contoursList.size - 1)
-                            contoursList[cIdx]
+                            val idxF = normTime * (contoursList.size - 1)
+                            val idx0 = idxF.toInt().coerceIn(0, contoursList.size - 1)
+                            val idx1 = (idx0 + 1).coerceAtMost(contoursList.size - 1)
+                            val frac = idxF - idx0
+                            val c0 = contoursList[idx0]
+                            val c1 = contoursList[idx1]
+                            if (c0.size == c1.size && c0.isNotEmpty()) {
+                                c0.zip(c1) { p0, p1 ->
+                                    Point2D(p0.x + (p1.x - p0.x) * frac, p0.y + (p1.y - p0.y) * frac)
+                                }
+                            } else {
+                                c0
+                            }
                         } else {
                             val staticContour = motionParams?.subjectContour ?: trackingOverlay?.subjectContour ?: emptyList()
                             if (staticContour.isNotEmpty()) {
@@ -720,19 +744,43 @@ fun VideoPreviewSection(
                             val strokeW = 4f
 
                             // SUBJECT OUTLINER: Glowing Neon Silhouette
-                            val staticContour = if (middleParams.subjectContour.isNotEmpty()) {
-                                val dx = curX - middleParams.targetX
-                                val dy = curY - middleParams.targetY
-                                middleParams.subjectContour.map { pt -> Point2D(pt.x + dx, pt.y + dy) }
+                            val contoursList = if (middleParams.trackingContours.isNotEmpty()) {
+                                middleParams.trackingContours
+                            } else if (!trackingOverlay?.trackingContours.isNullOrEmpty()) {
+                                trackingOverlay!!.trackingContours
                             } else {
-                                com.aiditor.app.util.SubjectOutliner.generateDefaultContour(curX, curY, middleParams.boxWidth, middleParams.boxHeight, 24)
+                                emptyList()
+                            }
+                            val activeContour = if (contoursList.isNotEmpty()) {
+                                val idxF = normTime * (contoursList.size - 1)
+                                val idx0 = idxF.toInt().coerceIn(0, contoursList.size - 1)
+                                val idx1 = (idx0 + 1).coerceAtMost(contoursList.size - 1)
+                                val frac = idxF - idx0
+                                val c0 = contoursList[idx0]
+                                val c1 = contoursList[idx1]
+                                if (c0.size == c1.size && c0.isNotEmpty()) {
+                                    c0.zip(c1) { p0, p1 ->
+                                        Point2D(p0.x + (p1.x - p0.x) * frac, p0.y + (p1.y - p0.y) * frac)
+                                    }
+                                } else {
+                                    c0
+                                }
+                            } else {
+                                val staticContour = if (middleParams.subjectContour.isNotEmpty()) {
+                                    val dx = curX - middleParams.targetX
+                                    val dy = curY - middleParams.targetY
+                                    middleParams.subjectContour.map { pt -> Point2D(pt.x + dx, pt.y + dy) }
+                                } else {
+                                    com.aiditor.app.util.SubjectOutliner.generateDefaultContour(curX, curY, middleParams.boxWidth, middleParams.boxHeight, 24)
+                                }
+                                staticContour
                             }
 
-                            if (staticContour.isNotEmpty()) {
+                            if (activeContour.isNotEmpty()) {
                                 val contourPath = Path()
-                                contourPath.moveTo(staticContour[0].x * w, staticContour[0].y * h)
-                                for (i in 1 until staticContour.size) {
-                                    contourPath.lineTo(staticContour[i].x * w, staticContour[i].y * h)
+                                contourPath.moveTo(activeContour[0].x * w, activeContour[0].y * h)
+                                for (i in 1 until activeContour.size) {
+                                    contourPath.lineTo(activeContour[i].x * w, activeContour[i].y * h)
                                 }
                                 contourPath.close()
 
@@ -944,10 +992,10 @@ fun VideoPreviewSection(
  */
 fun buildColorMatrix(params: MiddleParameters.ColorGrade): ColorMatrix {
     val cm = ColorMatrix()
-    cm.setSaturation(params.saturation)
+    cm.setSaturation(params.saturation.coerceIn(0.0f, 2.5f))
 
-    val scale = params.contrast
-    val translate = (0.5f * (1f - scale) + params.brightness) * 255f
+    val scale = params.contrast.coerceIn(0.5f, 2.0f)
+    val translate = ((0.5f * (1f - scale)) + params.brightness.coerceIn(-0.5f, 0.5f)) * 255f
     val contrastMatrix = ColorMatrix(floatArrayOf(
         scale, 0f, 0f, 0f, translate,
         0f, scale, 0f, 0f, translate,
@@ -964,39 +1012,51 @@ fun buildColorMatrix(params: MiddleParameters.ColorGrade): ColorMatrix {
         }
         "cyberpunk_cool" -> {
             val cool = ColorMatrix(floatArrayOf(
-                0.85f, 0f, 0f, 0f, -5f,
-                0f, 1.05f, 0f, 0f, 10f,
-                0f, 0f, 1.35f, 0f, 25f,
+                0.90f, 0f, 0f, 0f, -6f,
+                0f, 1.02f, 0f, 0f, 4f,
+                0f, 0f, 1.22f, 0f, 18f,
                 0f, 0f, 0f, 1f, 0f
             ))
             cm.postConcat(cool)
         }
         "warm_gold" -> {
             val warm = ColorMatrix(floatArrayOf(
-                1.25f, 0f, 0f, 0f, 20f,
-                0f, 1.05f, 0f, 0f, 10f,
-                0f, 0f, 0.80f, 0f, -15f,
+                1.18f, 0f, 0f, 0f, 14f,
+                0f, 1.04f, 0f, 0f, 6f,
+                0f, 0f, 0.86f, 0f, -10f,
                 0f, 0f, 0f, 1f, 0f
             ))
             cm.postConcat(warm)
         }
         "vintage_90s" -> {
             val vintage = ColorMatrix(floatArrayOf(
-                1.1f, 0f, 0f, 0f, 15f,
-                0f, 0.95f, 0f, 0f, 5f,
-                0f, 0f, 0.75f, 0f, -20f,
+                1.08f, 0f, 0f, 0f, 10f,
+                0f, 0.98f, 0f, 0f, 4f,
+                0f, 0f, 0.88f, 0f, -12f,
                 0f, 0f, 0f, 1f, 0f
             ))
             cm.postConcat(vintage)
         }
         "noir_dark" -> {
-            val noir = ColorMatrix(floatArrayOf(
-                1.5f, 0f, 0f, 0f, -30f,
-                0f, 1.5f, 0f, 0f, -30f,
-                0f, 0f, 1.5f, 0f, -30f,
+            val noir = ColorMatrix()
+            noir.setSaturation(0f)
+            val boost = ColorMatrix(floatArrayOf(
+                1.25f, 0f, 0f, 0f, -20f,
+                0f, 1.25f, 0f, 0f, -20f,
+                0f, 0f, 1.25f, 0f, -20f,
                 0f, 0f, 0f, 1f, 0f
             ))
             cm.postConcat(noir)
+            cm.postConcat(boost)
+        }
+        "vibrant_punch" -> {
+            val vibrant = ColorMatrix(floatArrayOf(
+                1.12f, 0f, 0f, 0f, 6f,
+                0f, 1.12f, 0f, 0f, 6f,
+                0f, 0f, 1.12f, 0f, 6f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            cm.postConcat(vibrant)
         }
         else -> {}
     }

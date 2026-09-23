@@ -535,7 +535,11 @@ class WorkspaceViewModel(
             subjectContour = defaultContour,
             trackingContours = emptyList()
         )
-        _uiState.value = _uiState.value.copy(middleParams = updatedMotion)
+        val nextTracking = if (motion.trackingMode == "target_lock") ActiveTrackingMode.MOTION_STABILIZATION else ActiveTrackingMode.MOTION_TRACKING
+        _uiState.value = _uiState.value.copy(
+            middleParams = updatedMotion,
+            trackingMode = nextTracking
+        )
 
         // Asynchronously extract exact subject contour from current video frame
         val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
@@ -570,10 +574,11 @@ class WorkspaceViewModel(
         val motion = (_uiState.value.middleParams as? MiddleParameters.MotionTracking)
             ?: MiddleParameters.MotionTracking()
         val selClip = _uiState.value.clips.find { it.isSelected } ?: _uiState.value.clips.firstOrNull()
-        val clipStart = selClip?.inPointSeconds ?: _playbackPosition.value
+        val clipStart = selClip?.inPointSeconds ?: 0.0
         val clipDur = selClip?.durationSeconds ?: 5.0
         val videoPath = selClip?.sourcePath?.ifBlank { null } ?: _uiState.value.project?.videoPath ?: ""
         val context = com.aiditor.app.AiditorApp.instance
+        val anchorTime = _playbackPosition.value.coerceIn(clipStart, clipStart + clipDur)
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
@@ -588,6 +593,7 @@ class WorkspaceViewModel(
                 com.aiditor.app.util.MotionTrackerEngine.trackSubjectAdvanced(
                     context = context,
                     videoPath = videoPath,
+                    anchorTimeSeconds = anchorTime,
                     startTimeSeconds = clipStart,
                     durationSeconds = clipDur,
                     initialX = motion.targetX,
@@ -612,10 +618,11 @@ class WorkspaceViewModel(
                         middleParams = curMotion.copy(trackingProgress = pct)
                     )
                 }
+                val anchorStep = (((anchorTime - clipStart) / clipDur) * 30).toInt().coerceIn(0, 30)
                 val kfs = (0..30).map { i ->
-                    val t = i / 30f
-                    val kx = (motion.targetX + 0.03f * kotlin.math.sin(t * 3.14159f * 2f)).toFloat().coerceIn(0.05f, 0.95f)
-                    val ky = (motion.targetY + 0.02f * kotlin.math.cos(t * 3.14159f * 1.5f)).toFloat().coerceIn(0.05f, 0.95f)
+                    val dt = (i - anchorStep) / 30f
+                    val kx = (motion.targetX + 0.04f * kotlin.math.sin(dt * 3.14159f * 2f)).toFloat().coerceIn(0.05f, 0.95f)
+                    val ky = (motion.targetY + 0.025f * kotlin.math.sin(dt * 3.14159f * 1.5f)).toFloat().coerceIn(0.05f, 0.95f)
                     Point2D(kx, ky)
                 }
                 val cnts = kfs.map { p ->
@@ -806,9 +813,20 @@ class WorkspaceViewModel(
             ToolType.ROTOSCOPE -> MiddleParameters.Rotoscope()
         }
 
+        val nextTrackingMode = if (tool == ToolType.MOTION_TRACKING) {
+            val isLock = (defaultMiddle as? MiddleParameters.MotionTracking)?.trackingMode == "target_lock" ||
+                (defaultMiddle as? MiddleParameters.MotionTracking)?.isTargetLockActive == true
+            if (isLock) ActiveTrackingMode.MOTION_STABILIZATION else ActiveTrackingMode.MOTION_TRACKING
+        } else if (_uiState.value.trackingMode != ActiveTrackingMode.NONE) {
+            _uiState.value.trackingMode
+        } else {
+            ActiveTrackingMode.NONE
+        }
+
         _uiState.value = _uiState.value.copy(
             activeTool = tool,
-            middleParams = defaultMiddle
+            middleParams = defaultMiddle,
+            trackingMode = nextTrackingMode
         )
 
         refreshVisualizerData()
@@ -911,7 +929,16 @@ class WorkspaceViewModel(
     }
 
     fun updateMiddleParams(params: MiddleParameters) {
-        _uiState.value = _uiState.value.copy(middleParams = params)
+        val nextTracking = if (params is MiddleParameters.MotionTracking) {
+            val isLock = params.isTargetLockActive || params.trackingMode == "target_lock"
+            if (isLock) ActiveTrackingMode.MOTION_STABILIZATION else ActiveTrackingMode.MOTION_TRACKING
+        } else {
+            _uiState.value.trackingMode
+        }
+        _uiState.value = _uiState.value.copy(
+            middleParams = params,
+            trackingMode = nextTracking
+        )
         refreshVisualizerData()
     }
 

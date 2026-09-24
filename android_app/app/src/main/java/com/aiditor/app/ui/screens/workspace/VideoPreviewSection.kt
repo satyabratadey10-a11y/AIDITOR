@@ -1,5 +1,6 @@
 package com.aiditor.app.ui.screens.workspace
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ColorMatrix
@@ -9,11 +10,17 @@ import android.graphics.Paint
 import android.graphics.RenderEffect
 import android.net.Uri
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.view.LayoutInflater
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import androidx.annotation.OptIn
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -98,17 +105,96 @@ fun VideoPreviewSection(
     videoPath: String? = null,
     clips: List<TimelineClip> = emptyList(),
     overlays: List<TimelineOverlay> = emptyList(),
+    selectedClipId: String? = null,
+    onUpdateClipTransform: (String, Float, Float, Float) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val currentOnPlaybackEnded by rememberUpdatedState(onPlaybackEnded)
+    val currentOnUpdateClipTransform by rememberUpdatedState(onUpdateClipTransform)
 
-    // Active Clip determination based on currentTimeSeconds across the entire timeline
+    val selectedClip = remember(clips, selectedClipId) {
+        clips.find { it.id == selectedClipId || it.isSelected }
+    }
+
+    // Active Clip determination based on timelineStartSeconds across the entire timeline
     val activeClip = remember(clips, currentTimeSeconds) {
         clips.firstOrNull { clip ->
-            val start = clip.inPointSeconds
-            val end = clip.inPointSeconds + clip.durationSeconds
+            val start = clip.timelineStartSeconds
+            val end = clip.timelineStartSeconds + clip.durationSeconds
             currentTimeSeconds >= start && currentTimeSeconds < end
+        } ?: selectedClip ?: clips.firstOrNull()
+    }
+
+    val targetTransformClip = selectedClip ?: activeClip
+
+    var currentClipScale by remember(targetTransformClip?.id) { mutableFloatStateOf(targetTransformClip?.scale ?: 1.0f) }
+    var currentClipPanX by remember(targetTransformClip?.id) { mutableFloatStateOf(targetTransformClip?.panX ?: 0.0f) }
+    var currentClipPanY by remember(targetTransformClip?.id) { mutableFloatStateOf(targetTransformClip?.panY ?: 0.0f) }
+
+    LaunchedEffect(targetTransformClip?.scale, targetTransformClip?.panX, targetTransformClip?.panY) {
+        if (targetTransformClip != null) {
+            currentClipScale = targetTransformClip.scale
+            currentClipPanX = targetTransformClip.panX
+            currentClipPanY = targetTransformClip.panY
+        }
+    }
+
+    // Magnetic snap alignment guides
+    var snapGuideCenterX by remember { mutableStateOf(false) }
+    var snapGuideCenterY by remember { mutableStateOf(false) }
+    var snapGuideLeft by remember { mutableStateOf(false) }
+    var snapGuideRight by remember { mutableStateOf(false) }
+    var snapGuideTop by remember { mutableStateOf(false) }
+    var snapGuideBottom by remember { mutableStateOf(false) }
+
+    // Haptic feedback controller (10-20ms vibration)
+    val vibrator = remember {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator ?: (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    val triggerSnapHaptic = remember(vibrator) {
+        {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(VibrationEffect.createOneShot(15L, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(15L)
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Transient play button fade animation
+    val playBadgeAlpha = remember { Animatable(0f) }
+    var lastIsPlaying by remember { mutableStateOf(isPlaying) }
+
+    LaunchedEffect(isPlaying) {
+        if (isPlaying != lastIsPlaying) {
+            lastIsPlaying = isPlaying
+            if (!isPlaying) {
+                // Was playing, now paused: show briefly, then smoothly fade out
+                playBadgeAlpha.snapTo(1f)
+                delay(450)
+                playBadgeAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing)
+                )
+            } else {
+                // Began playing: hide immediately
+                playBadgeAlpha.animateTo(0f, tween(150))
+            }
         }
     }
 
@@ -218,7 +304,8 @@ fun VideoPreviewSection(
     // Local Clip Time Synchronization:
     val clipLocalSeconds = remember(currentTimeSeconds, activeClip) {
         if (activeClip != null) {
-            ((currentTimeSeconds - activeClip.inPointSeconds).coerceAtLeast(0.0) * activeClip.speedMultiplier)
+            val offsetInClip = (currentTimeSeconds - activeClip.timelineStartSeconds).coerceAtLeast(0.0)
+            (activeClip.inPointSeconds + offsetInClip * activeClip.speedMultiplier).coerceIn(activeClip.inPointSeconds, activeClip.outPointSeconds)
         } else {
             currentTimeSeconds
         }
@@ -293,13 +380,16 @@ fun VideoPreviewSection(
                     color = if (trackingMode != ActiveTrackingMode.NONE || isTrackingActive) Color(0xFF2E7D32) else BwCardStroke,
                     shape = RoundedCornerShape(8.dp)
                 )
-                .pointerInput(Unit) {
+                .pointerInput(targetTransformClip?.id, isTrackingActive) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startPos = down.position
                         var isTransforming = false
                         val w = size.width.toFloat()
                         val h = size.height.toFloat()
+
+                        var wasSnappedX = false
+                        var wasSnappedY = false
 
                         while (true) {
                             val event = awaitPointerEvent()
@@ -316,6 +406,22 @@ fun VideoPreviewSection(
                                     } else {
                                         currentOnPlayPauseToggle()
                                     }
+                                } else {
+                                    // Gesture completed: commit transform if target clip exists
+                                    if (targetTransformClip != null && !currentIsTrackingActive) {
+                                        currentOnUpdateClipTransform(
+                                            targetTransformClip.id,
+                                            currentClipScale,
+                                            currentClipPanX,
+                                            currentClipPanY
+                                        )
+                                    }
+                                    snapGuideCenterX = false
+                                    snapGuideCenterY = false
+                                    snapGuideLeft = false
+                                    snapGuideRight = false
+                                    snapGuideTop = false
+                                    snapGuideBottom = false
                                 }
                                 break
                             }
@@ -360,104 +466,277 @@ fun VideoPreviewSection(
                                         currentOnUpdateTrackingTarget(newX, newY, curW, curH)
                                     }
                                 }
+                            } else if (w > 0 && h > 0) {
+                                // FREE MOVE & SCALE WITH MAGNETIC SNAPPING AND HAPTIC FEEDBACK
+                                if (activePointers.size >= 2) {
+                                    // Pinch to zoom / scale
+                                    isTransforming = true
+                                    val p1 = activePointers[0].position
+                                    val p2 = activePointers[1].position
+                                    val prev1 = activePointers[0].previousPosition
+                                    val prev2 = activePointers[1].previousPosition
+                                    val currentDist = kotlin.math.hypot(p1.x - p2.x, p1.y - p2.y)
+                                    val prevDist = kotlin.math.hypot(prev1.x - prev2.x, prev1.y - prev2.y)
+                                    if (prevDist > 0f) {
+                                        val zoom = currentDist / prevDist
+                                        currentClipScale = (currentClipScale * zoom).coerceIn(0.2f, 5.0f)
+                                    }
+                                    activePointers.forEach { it.consume() }
+                                } else if (activePointers.size == 1) {
+                                    // 1-finger Drag to pan with Magnetic Snapping
+                                    val change = activePointers[0]
+                                    val dragDelta = change.position - change.previousPosition
+                                    val totalMove = kotlin.math.hypot(change.position.x - startPos.x, change.position.y - startPos.y)
+                                    if (!isTransforming && totalMove > 6f) {
+                                        isTransforming = true
+                                    }
+                                    if (isTransforming) {
+                                        change.consume()
+                                        var rawPanX = currentClipPanX + dragDelta.x
+                                        var rawPanY = currentClipPanY + dragDelta.y
+
+                                        val snapThreshold = 22f
+                                        var isSnappedX = false
+                                        var isSnappedY = false
+
+                                        // 1. Center X snap
+                                        if (kotlin.math.abs(rawPanX) < snapThreshold) {
+                                            rawPanX = 0f
+                                            isSnappedX = true
+                                            snapGuideCenterX = true
+                                        } else {
+                                            snapGuideCenterX = false
+                                        }
+
+                                        // 2. Center Y snap
+                                        if (kotlin.math.abs(rawPanY) < snapThreshold) {
+                                            rawPanY = 0f
+                                            isSnappedY = true
+                                            snapGuideCenterY = true
+                                        } else {
+                                            snapGuideCenterY = false
+                                        }
+
+                                        // 3. Left / Right Edge Snapping
+                                        val edgeOffsetXPx = (w * (currentClipScale - 1f)) / 2f
+                                        val leftTarget = edgeOffsetXPx
+                                        val rightTarget = -edgeOffsetXPx
+                                        if (kotlin.math.abs(rawPanX - leftTarget) < snapThreshold) {
+                                            rawPanX = leftTarget
+                                            isSnappedX = true
+                                            snapGuideLeft = true
+                                        } else {
+                                            snapGuideLeft = false
+                                        }
+                                        if (kotlin.math.abs(rawPanX - rightTarget) < snapThreshold) {
+                                            rawPanX = rightTarget
+                                            isSnappedX = true
+                                            snapGuideRight = true
+                                        } else {
+                                            snapGuideRight = false
+                                        }
+
+                                        // 4. Top / Bottom Edge Snapping
+                                        val edgeOffsetYPx = (h * (currentClipScale - 1f)) / 2f
+                                        val topTarget = edgeOffsetYPx
+                                        val bottomTarget = -edgeOffsetYPx
+                                        if (kotlin.math.abs(rawPanY - topTarget) < snapThreshold) {
+                                            rawPanY = topTarget
+                                            isSnappedY = true
+                                            snapGuideTop = true
+                                        } else {
+                                            snapGuideTop = false
+                                        }
+                                        if (kotlin.math.abs(rawPanY - bottomTarget) < snapThreshold) {
+                                            rawPanY = bottomTarget
+                                            isSnappedY = true
+                                            snapGuideBottom = true
+                                        } else {
+                                            snapGuideBottom = false
+                                        }
+
+                                        // Trigger 15ms haptic pulse on snap engagement
+                                        if ((isSnappedX && !wasSnappedX) || (isSnappedY && !wasSnappedY)) {
+                                            triggerSnapHaptic()
+                                        }
+                                        wasSnappedX = isSnappedX
+                                        wasSnappedY = isSnappedY
+
+                                        currentClipPanX = rawPanX
+                                        currentClipPanY = rawPanY
+                                    }
+                                }
                             }
                         }
                     }
                 },
             contentAlignment = Alignment.Center
         ) {
-            // 0. Blank Space (Empty gap between clips): Pure Black Screen
-            if (isBlankSpace) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "BLANK GAP",
-                        color = Color(0xFF333333),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            } else if (staticImageBitmap != null) {
-                val bm = staticImageBitmap!!
-                Canvas(
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    val cm = if (middleParams is MiddleParameters.ColorGrade) buildColorMatrix(middleParams) else null
-                    val paint = Paint().apply {
-                        if (cm != null) {
-                            colorFilter = ColorMatrixColorFilter(cm)
-                        }
-                        isFilterBitmap = true
-                        isAntiAlias = true
-                    }
-                    val dstRect = android.graphics.Rect(0, 0, size.width.toInt(), size.height.toInt())
-                    val srcRect = android.graphics.Rect(0, 0, bm.width, bm.height)
-                    drawContext.canvas.nativeCanvas.drawBitmap(bm, srcRect, dstRect, paint)
-                }
-            } else if (exoPlayer != null) {
-                var lastAppliedGrade by remember { mutableStateOf<MiddleParameters.ColorGrade?>(null) }
-                AndroidView(
-                    factory = { ctx ->
-                        val view = LayoutInflater.from(ctx).inflate(R.layout.view_player, null) as PlayerView
-                        view.player = exoPlayer
-                        view.useController = false
-                        view.layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        scaleX = currentClipScale
+                        scaleY = currentClipScale
+                        translationX = currentClipPanX
+                        translationY = currentClipPanY
+                        clip = false
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // 0. Blank Space (Empty gap between clips): Pure Black Screen
+                if (isBlankSpace) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "BLANK GAP",
+                            color = Color(0xFF333333),
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
                         )
-                        view
-                    },
-                    update = { view ->
-                        if (view.player != exoPlayer) {
-                            view.player = exoPlayer
-                        }
-                        val grade = middleParams as? MiddleParameters.ColorGrade
-                        if (grade != lastAppliedGrade) {
-                            lastAppliedGrade = grade
-                            val texture = view.videoSurfaceView as? TextureView
-                            if (texture != null && texture.layerType != View.LAYER_TYPE_NONE) {
-                                texture.setLayerType(View.LAYER_TYPE_NONE, null)
-                            }
-
-                            if (grade != null && (grade.brightness != 0f || grade.contrast != 1f || grade.saturation != 1f || grade.filterPreset != "original")) {
-                                val cm = buildColorMatrix(grade)
-                                val filter = ColorMatrixColorFilter(cm)
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    view.setRenderEffect(RenderEffect.createColorFilterEffect(filter))
-                                } else {
-                                    val paint = Paint().apply { colorFilter = filter }
-                                    view.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
-                                }
-                            } else {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    view.setRenderEffect(null)
-                                } else {
-                                    view.setLayerType(View.LAYER_TYPE_NONE, null)
-                                }
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-            } else {
-                // Procedural video background fallback
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawRect(Color(0xFF141416))
-                    val step = 40f
-                    var x = 0f
-                    while (x < size.width) {
-                        drawLine(Color(0xFF1C1C20), Offset(x, 0f), Offset(x, size.height), 1f)
-                        x += step
                     }
-                    var y = 0f
-                    while (y < size.height) {
-                        drawLine(Color(0xFF1C1C20), Offset(0f, y), Offset(size.width, y), 1f)
-                        y += step
+                } else if (staticImageBitmap != null) {
+                    val bm = staticImageBitmap!!
+                    Canvas(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        val cm = if (middleParams is MiddleParameters.ColorGrade) buildColorMatrix(middleParams) else null
+                        val paint = Paint().apply {
+                            if (cm != null) {
+                                colorFilter = ColorMatrixColorFilter(cm)
+                            }
+                            isFilterBitmap = true
+                            isAntiAlias = true
+                        }
+                        val dstRect = android.graphics.Rect(0, 0, size.width.toInt(), size.height.toInt())
+                        val srcRect = android.graphics.Rect(0, 0, bm.width, bm.height)
+                        drawContext.canvas.nativeCanvas.drawBitmap(bm, srcRect, dstRect, paint)
+                    }
+                } else if (exoPlayer != null) {
+                    var lastAppliedGrade by remember { mutableStateOf<MiddleParameters.ColorGrade?>(null) }
+                    AndroidView(
+                        factory = { ctx ->
+                            val view = LayoutInflater.from(ctx).inflate(R.layout.view_player, null) as PlayerView
+                            view.player = exoPlayer
+                            view.useController = false
+                            view.layoutParams = ViewGroup.LayoutParams(
+                                ViewGroup.LayoutParams.MATCH_PARENT,
+                                ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                            view
+                        },
+                        update = { view ->
+                            if (view.player != exoPlayer) {
+                                view.player = exoPlayer
+                            }
+                            val grade = middleParams as? MiddleParameters.ColorGrade
+                            if (grade != lastAppliedGrade) {
+                                lastAppliedGrade = grade
+                                val texture = view.videoSurfaceView as? TextureView
+                                if (texture != null && texture.layerType != View.LAYER_TYPE_NONE) {
+                                    texture.setLayerType(View.LAYER_TYPE_NONE, null)
+                                }
+
+                                if (grade != null && (grade.brightness != 0f || grade.contrast != 1f || grade.saturation != 1f || grade.filterPreset != "original")) {
+                                    val cm = buildColorMatrix(grade)
+                                    val filter = ColorMatrixColorFilter(cm)
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        view.setRenderEffect(RenderEffect.createColorFilterEffect(filter))
+                                    } else {
+                                        val paint = Paint().apply { colorFilter = filter }
+                                        view.setLayerType(View.LAYER_TYPE_HARDWARE, paint)
+                                    }
+                                } else {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                        view.setRenderEffect(null)
+                                    } else {
+                                        view.setLayerType(View.LAYER_TYPE_NONE, null)
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    // Procedural video background fallback
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawRect(Color(0xFF141416))
+                        val step = 40f
+                        var x = 0f
+                        while (x < size.width) {
+                            drawLine(Color(0xFF1C1C20), Offset(x, 0f), Offset(x, size.height), 1f)
+                            x += step
+                        }
+                        var y = 0f
+                        while (y < size.height) {
+                            drawLine(Color(0xFF1C1C20), Offset(0f, y), Offset(size.width, y), 1f)
+                            y += step
+                        }
+                    }
+                }
+            }
+
+            // Magnetic Alignment Guidelines Overlay
+            if (snapGuideCenterX || snapGuideCenterY || snapGuideLeft || snapGuideRight || snapGuideTop || snapGuideBottom) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val guideCyan = Color(0xFF00E5FF)
+                    val guideYellow = Color(0xFFFFD54F)
+                    val strokeW = 2f
+
+                    if (snapGuideCenterX) {
+                        drawLine(
+                            color = guideYellow,
+                            start = Offset(size.width / 2f, 0f),
+                            end = Offset(size.width / 2f, size.height),
+                            strokeWidth = strokeW,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                        )
+                    }
+                    if (snapGuideCenterY) {
+                        drawLine(
+                            color = guideYellow,
+                            start = Offset(0f, size.height / 2f),
+                            end = Offset(size.width, size.height / 2f),
+                            strokeWidth = strokeW,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(12f, 8f), 0f)
+                        )
+                    }
+                    if (snapGuideLeft) {
+                        drawLine(
+                            color = guideCyan,
+                            start = Offset(0f, 0f),
+                            end = Offset(0f, size.height),
+                            strokeWidth = strokeW + 1f
+                        )
+                    }
+                    if (snapGuideRight) {
+                        drawLine(
+                            color = guideCyan,
+                            start = Offset(size.width, 0f),
+                            end = Offset(size.width, size.height),
+                            strokeWidth = strokeW + 1f
+                        )
+                    }
+                    if (snapGuideTop) {
+                        drawLine(
+                            color = guideCyan,
+                            start = Offset(0f, 0f),
+                            end = Offset(size.width, 0f),
+                            strokeWidth = strokeW + 1f
+                        )
+                    }
+                    if (snapGuideBottom) {
+                        drawLine(
+                            color = guideCyan,
+                            start = Offset(0f, size.height),
+                            end = Offset(size.width, size.height),
+                            strokeWidth = strokeW + 1f
+                        )
                     }
                 }
             }
@@ -901,20 +1180,21 @@ fun VideoPreviewSection(
                 }
             }
 
-            // Play / Pause central indicator (only shown when paused)
-            if (!isPlaying) {
+            // Play / Pause transient indicator (smoothly fades out instantly, never stays permanently)
+            if (playBadgeAlpha.value > 0.01f) {
                 Box(
                     modifier = Modifier
                         .size(54.dp)
+                        .graphicsLayer { alpha = playBadgeAlpha.value }
                         .clip(CircleShape)
                         .background(Color(0x88000000))
-                        .border(1.5.dp, BwWhite, CircleShape),
+                        .border(1.5.dp, BwWhite.copy(alpha = playBadgeAlpha.value), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        painter = painterResource(id = R.drawable.ic_play),
-                        contentDescription = "Play",
-                        tint = BwWhite,
+                        painter = painterResource(id = if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = BwWhite.copy(alpha = playBadgeAlpha.value),
                         modifier = Modifier.size(24.dp)
                     )
                 }

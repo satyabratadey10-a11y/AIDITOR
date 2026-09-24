@@ -1,6 +1,11 @@
 package com.aiditor.app.ui.screens.workspace
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,13 +79,14 @@ fun TimelineSection(
     onSelectOverlay: (String) -> Unit = {},
     onStopTracking: () -> Unit = {},
     onTrimClipBoundaries: (String, Double, Double, Boolean) -> Unit = { _, _, _, _ -> },
+    onMoveClip: (String, Double, Int) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
 
-    val hasTrack2 = overlays.isNotEmpty() || trackingMode != ActiveTrackingMode.NONE
-    val hasTrack3 = overlays.size > 1
+    val hasTrack2 = overlays.isNotEmpty() || trackingMode != ActiveTrackingMode.NONE || clips.any { it.trackIndex == 1 }
+    val hasTrack3 = overlays.size > 1 || clips.any { it.trackIndex >= 2 }
 
     val timelineHeight = when {
         hasTrack3 -> 180.dp
@@ -94,8 +100,36 @@ fun TimelineSection(
     val currentClips by rememberUpdatedState(clips)
     val currentSelectedClipId by rememberUpdatedState(selectedClipId)
     val currentOnTrimClipBoundaries by rememberUpdatedState(onTrimClipBoundaries)
+    val currentOnMoveClip by rememberUpdatedState(onMoveClip)
     val currentOnSelectClip by rememberUpdatedState(onSelectClip)
     val currentOnDeselectAll by rememberUpdatedState(onDeselectAll)
+
+    val vibrator = remember {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator ?: (context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator)
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    val triggerSnapHaptic = remember(vibrator) {
+        {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator?.vibrate(VibrationEffect.createOneShot(15L, VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    vibrator?.vibrate(15L)
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     // Pixels per second scale (zoom factor)
     val pixelsPerSecond = 70f // 70 dp per second gives smooth scrubbing and thumbnail display
@@ -336,30 +370,41 @@ fun TimelineSection(
                                 val t1Top = 22f
                                 val t1Height = 60f
 
-                                var dragMode = 0 // 0 = playhead scroll, 1 = left trim handle, 2 = right trim handle
+                                var dragMode = 0 // 0 = playhead scroll, 1 = left trim handle, 2 = right trim handle, 3 = move clip along track
                                 var initialClipIn = 0.0
                                 var initialClipOut = 0.0
+                                var initialClipStart = 0.0
                                 var lastNewIn = 0.0
                                 var lastNewOut = 0.0
+                                var lastNewStart = 0.0
+                                var wasSnappedTimeline = false
 
-                                val handleHitRadiusPx = 44f
-                                if (selClip != null && startY in (t1Top - 20f)..(t1Top + t1Height + 20f)) {
-                                    val clipStartPx = scrollOffsetPx + (selClip.inPointSeconds.toFloat() * pixelsPerSecond)
-                                    val clipWidthPx = (selClip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
-                                    val clipEndPx = clipStartPx + clipWidthPx
+                                val handleHitRadiusPx = 36f
+                                if (selClip != null) {
+                                    val clipTrackTop = if (selClip.trackIndex == 1) 88f else 22f
+                                    val clipTrackH = if (selClip.trackIndex == 1) 44f else 60f
+                                    if (startY in (clipTrackTop - 15f)..(clipTrackTop + clipTrackH + 15f)) {
+                                        val clipStartPx = scrollOffsetPx + (selClip.timelineStartSeconds.toFloat() * pixelsPerSecond)
+                                        val clipWidthPx = (selClip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
+                                        val clipEndPx = clipStartPx + clipWidthPx
 
-                                    if (kotlin.math.abs(startX - clipStartPx) <= handleHitRadiusPx) {
-                                        dragMode = 1
-                                        initialClipIn = selClip.inPointSeconds
-                                        initialClipOut = selClip.outPointSeconds
-                                        lastNewIn = initialClipIn
-                                        lastNewOut = initialClipOut
-                                    } else if (kotlin.math.abs(startX - clipEndPx) <= handleHitRadiusPx) {
-                                        dragMode = 2
-                                        initialClipIn = selClip.inPointSeconds
-                                        initialClipOut = selClip.outPointSeconds
-                                        lastNewIn = initialClipIn
-                                        lastNewOut = initialClipOut
+                                        if (kotlin.math.abs(startX - clipStartPx) <= handleHitRadiusPx) {
+                                            dragMode = 1
+                                            initialClipIn = selClip.inPointSeconds
+                                            initialClipOut = selClip.outPointSeconds
+                                            lastNewIn = initialClipIn
+                                            lastNewOut = initialClipOut
+                                        } else if (kotlin.math.abs(startX - clipEndPx) <= handleHitRadiusPx) {
+                                            dragMode = 2
+                                            initialClipIn = selClip.inPointSeconds
+                                            initialClipOut = selClip.outPointSeconds
+                                            lastNewIn = initialClipIn
+                                            lastNewOut = initialClipOut
+                                        } else if (startX in clipStartPx..clipEndPx) {
+                                            dragMode = 3
+                                            initialClipStart = selClip.timelineStartSeconds
+                                            lastNewStart = initialClipStart
+                                        }
                                     }
                                 }
 
@@ -377,8 +422,8 @@ fun TimelineSection(
                                             val target = (startTime + deltaSec).coerceIn(0.0, currentDuration)
 
                                             val clickedClip = currentClips.firstOrNull { clip ->
-                                                val inSec = clip.inPointSeconds
-                                                val outSec = clip.inPointSeconds + clip.durationSeconds
+                                                val inSec = clip.timelineStartSeconds
+                                                val outSec = clip.timelineStartSeconds + clip.durationSeconds
                                                 target in inSec..outSec
                                             }
 
@@ -389,10 +434,14 @@ fun TimelineSection(
                                             }
                                             currentOnSeek(target)
                                         } else {
-                                            // Drag completed: commit final trimmed state or exact seek
+                                            // Drag completed: commit final trimmed state, moved state, or exact seek
                                             if (dragMode == 1 || dragMode == 2) {
                                                 selClip?.let {
                                                     currentOnTrimClipBoundaries(it.id, lastNewIn, lastNewOut, true)
+                                                }
+                                            } else if (dragMode == 3) {
+                                                selClip?.let {
+                                                    currentOnMoveClip(it.id, lastNewStart, it.trackIndex)
                                                 }
                                             } else if (dragMode == 0) {
                                                 currentOnSeek(lastTarget)
@@ -425,6 +474,42 @@ fun TimelineSection(
                                                 lastNewOut = (initialClipOut + deltaSec).coerceAtLeast(initialClipIn + 0.1)
                                                 selClip?.let {
                                                     currentOnTrimClipBoundaries(it.id, lastNewIn, lastNewOut, false)
+                                                }
+                                            }
+                                            3 -> {
+                                                // Dragging clip body: Move clip along track freely with magnetic snapping
+                                                val deltaSec = (currentDragPx / pixelsPerSecond).toDouble()
+                                                var newStart = (initialClipStart + deltaSec).coerceAtLeast(0.0)
+
+                                                var snappedTimeline = false
+                                                if (kotlin.math.abs(newStart) < 0.15) {
+                                                    newStart = 0.0
+                                                    snappedTimeline = true
+                                                } else {
+                                                    for (other in currentClips) {
+                                                        if (other.id != selClip?.id && other.trackIndex == (selClip?.trackIndex ?: 0)) {
+                                                            val otherEnd = other.timelineStartSeconds + other.durationSeconds
+                                                            if (kotlin.math.abs(newStart - otherEnd) < 0.18) {
+                                                                newStart = otherEnd
+                                                                snappedTimeline = true
+                                                                break
+                                                            }
+                                                            val thisEnd = newStart + (selClip?.durationSeconds ?: 0.0)
+                                                            if (kotlin.math.abs(thisEnd - other.timelineStartSeconds) < 0.18) {
+                                                                newStart = (other.timelineStartSeconds - (selClip?.durationSeconds ?: 0.0)).coerceAtLeast(0.0)
+                                                                snappedTimeline = true
+                                                                break
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                if (snappedTimeline && !wasSnappedTimeline) {
+                                                    triggerSnapHaptic()
+                                                }
+                                                wasSnappedTimeline = snappedTimeline
+                                                lastNewStart = newStart
+                                                selClip?.let {
+                                                    currentOnMoveClip(it.id, newStart, it.trackIndex)
                                                 }
                                             }
                                             else -> {
@@ -496,7 +581,9 @@ fun TimelineSection(
 
                         // Draw Clips
                         clips.forEach { clip ->
-                            val clipStartPx = scrollOffsetPx + (clip.inPointSeconds.toFloat() * pixelsPerSecond)
+                            val clipTop = if (clip.trackIndex == 1) 88f else 22f
+                            val clipH = if (clip.trackIndex == 1) 44f else 60f
+                            val clipStartPx = scrollOffsetPx + (clip.timelineStartSeconds.toFloat() * pixelsPerSecond)
                             val clipWidthPx = (clip.durationSeconds.toFloat() * pixelsPerSecond).coerceAtLeast(30f)
                             val clipEndPx = clipStartPx + clipWidthPx
 
@@ -504,9 +591,9 @@ fun TimelineSection(
                             if (clipEndPx >= 0 && clipStartPx <= size.width) {
                                 // Draw clip base card
                                 drawRect(
-                                    color = Color(0xFF202022),
-                                    topLeft = Offset(clipStartPx, t1Top),
-                                    size = Size(clipWidthPx, t1Height)
+                                    color = if (clip.isImage) Color(0xFF2E2718) else Color(0xFF202022),
+                                    topLeft = Offset(clipStartPx, clipTop),
+                                    size = Size(clipWidthPx, clipH)
                                 )
 
                                 // Filmstrip frame slices
@@ -516,65 +603,63 @@ fun TimelineSection(
                                     val sx = clipStartPx + s * sliceW
                                     drawRect(
                                         color = if (s % 2 == 0) Color(0xFF262629) else Color(0xFF1F1F21),
-                                        topLeft = Offset(sx + 1f, t1Top + 1f),
-                                        size = Size(sliceW - 2f, t1Height - 2f)
+                                        topLeft = Offset(sx + 1f, clipTop + 1f),
+                                        size = Size(sliceW - 2f, clipH - 2f)
                                     )
                                 }
 
                                 // Clip boundary lines
                                 drawLine(
                                     color = Color(0xFF111113),
-                                    start = Offset(clipStartPx, t1Top),
-                                    end = Offset(clipStartPx, t1Top + t1Height),
+                                    start = Offset(clipStartPx, clipTop),
+                                    end = Offset(clipStartPx, clipTop + clipH),
                                     strokeWidth = 2f
                                 )
                                 drawLine(
                                     color = Color(0xFF111113),
-                                    start = Offset(clipEndPx, t1Top),
-                                    end = Offset(clipEndPx, t1Top + t1Height),
+                                    start = Offset(clipEndPx, clipTop),
+                                    end = Offset(clipEndPx, clipTop + clipH),
                                     strokeWidth = 2f
                                 )
 
                                 // 2 UI STATES:
-                                // State 1: Unselected (!isClipSelected): NO white border, NO handles. Clean filmstrip.
-                                // State 2: Selected (isClipSelected): Highlights the track with bold white border and handles.
                                 val isClipSelected = clip.isSelected || clip.id == selectedClipId
                                 if (isClipSelected) {
                                     // CapCut-style prominent white border
                                     drawRect(
                                         color = BwWhite,
-                                        topLeft = Offset(clipStartPx, t1Top),
-                                        size = Size(clipWidthPx, t1Height),
+                                        topLeft = Offset(clipStartPx, clipTop),
+                                        size = Size(clipWidthPx, clipH),
                                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
                                     )
 
                                     // Left vertical handle with dashed line indicator
                                     drawRoundRect(
                                         color = BwWhite,
-                                        topLeft = Offset(clipStartPx - 6f, t1Top),
-                                        size = Size(12f, t1Height),
+                                        topLeft = Offset(clipStartPx - 6f, clipTop),
+                                        size = Size(12f, clipH),
                                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
                                     )
                                     // Vertical dash grip line inside left handle
                                     drawLine(
                                         color = Color(0xFF141416),
-                                        start = Offset(clipStartPx, t1Top + t1Height * 0.32f),
-                                        end = Offset(clipStartPx, t1Top + t1Height * 0.68f),
+                                        start = Offset(clipStartPx, clipTop + clipH * 0.32f),
+                                        end = Offset(clipStartPx, clipTop + clipH * 0.68f),
                                         strokeWidth = 2.5f
                                     )
 
                                     // Right vertical handle with dashed line indicator
                                     drawRoundRect(
                                         color = BwWhite,
-                                        topLeft = Offset(clipEndPx - 6f, t1Top),
-                                        size = Size(12f, t1Height),
+                                        topLeft = Offset(clipEndPx - 6f, clipTop),
+                                        size = Size(12f, clipH),
                                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
                                     )
                                     // Vertical dash grip line inside right handle
                                     drawLine(
                                         color = Color(0xFF141416),
-                                        start = Offset(clipEndPx, t1Top + t1Height * 0.32f),
-                                        end = Offset(clipEndPx, t1Top + t1Height * 0.68f),
+                                        start = Offset(clipEndPx, clipTop + clipH * 0.32f),
+                                        end = Offset(clipEndPx, clipTop + clipH * 0.68f),
                                         strokeWidth = 2.5f
                                     )
                                 }

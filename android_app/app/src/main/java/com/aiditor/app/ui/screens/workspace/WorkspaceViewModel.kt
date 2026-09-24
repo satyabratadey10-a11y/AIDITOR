@@ -70,7 +70,13 @@ class WorkspaceViewModel(
 
     fun loadProject(project: Project) {
         val initialClips = if (project.clips.isNotEmpty()) {
-            project.clips
+            var runningTime = 0.0
+            project.clips.mapIndexed { idx, clip ->
+                val start = if (clip.timelineStartSeconds == 0.0 && idx > 0) runningTime else clip.timelineStartSeconds
+                val updatedClip = clip.copy(timelineStartSeconds = start)
+                runningTime = start + clip.durationSeconds
+                updatedClip
+            }
         } else {
             listOf(
                 TimelineClip(
@@ -80,6 +86,8 @@ class WorkspaceViewModel(
                     inPointSeconds = 0.0,
                     outPointSeconds = project.durationSeconds.coerceAtLeast(10.0),
                     durationSeconds = project.durationSeconds.coerceAtLeast(10.0),
+                    timelineStartSeconds = 0.0,
+                    trackIndex = 0,
                     isSelected = false
                 )
             )
@@ -89,7 +97,7 @@ class WorkspaceViewModel(
         val initialSelectedClipId = initialClips.find { it.isSelected }?.id ?: initialClips.firstOrNull()?.id
         val selClip = initialClips.find { it.id == initialSelectedClipId }
         val calcDuration = if (initialClips.isNotEmpty()) {
-            initialClips.sumOf { it.durationSeconds }.coerceAtLeast(0.5)
+            initialClips.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds }?.coerceAtLeast(0.5) ?: 10.0
         } else {
             project.durationSeconds.coerceAtLeast(10.0)
         }
@@ -118,7 +126,7 @@ class WorkspaceViewModel(
         val currentProj = _uiState.value.project ?: return
         val currentClips = _uiState.value.clips
         val totalDur = if (currentClips.isNotEmpty()) {
-            currentClips.sumOf { it.durationSeconds }.coerceAtLeast(0.5)
+            currentClips.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds }?.coerceAtLeast(0.5) ?: _uiState.value.totalDurationSeconds
         } else {
             _uiState.value.totalDurationSeconds
         }
@@ -338,23 +346,28 @@ class WorkspaceViewModel(
         val playhead = _uiState.value.currentTimeSeconds
         val currentClips = _uiState.value.clips.toMutableList()
 
-        // Find clip containing playhead
+        // Find clip containing playhead based on timelineStartSeconds and durationSeconds
         val targetIndex = currentClips.indexOfFirst {
-            playhead >= it.inPointSeconds && playhead <= it.outPointSeconds
+            val start = it.timelineStartSeconds
+            val end = start + it.durationSeconds
+            playhead in start..end
         }
 
         if (targetIndex != -1) {
             val target = currentClips[targetIndex]
-            val splitTime = playhead.coerceIn(target.inPointSeconds + 0.05, target.outPointSeconds - 0.05)
+            val offsetFromStart = (playhead - target.timelineStartSeconds).coerceIn(0.05, target.durationSeconds - 0.05)
+            val sourceSplitTime = target.inPointSeconds + (offsetFromStart * target.speedMultiplier)
+
             val clipA = target.copy(
-                outPointSeconds = splitTime,
-                durationSeconds = splitTime - target.inPointSeconds,
+                outPointSeconds = sourceSplitTime,
+                durationSeconds = offsetFromStart,
                 isSelected = false
             )
             val clipB = target.copy(
                 id = "clip_${System.currentTimeMillis()}",
-                inPointSeconds = splitTime,
-                durationSeconds = target.outPointSeconds - splitTime,
+                timelineStartSeconds = target.timelineStartSeconds + offsetFromStart,
+                inPointSeconds = sourceSplitTime,
+                durationSeconds = target.durationSeconds - offsetFromStart,
                 isSelected = true
             )
             currentClips[targetIndex] = clipA
@@ -398,6 +411,7 @@ class WorkspaceViewModel(
             val copy = original.copy(
                 id = "clip_dup_${System.currentTimeMillis()}",
                 title = "${original.title} (Copy)",
+                timelineStartSeconds = original.timelineStartSeconds + original.durationSeconds,
                 isSelected = true
             )
             currentClips[index] = original.copy(isSelected = false)
@@ -442,7 +456,7 @@ class WorkspaceViewModel(
                 )
             } else clip
         }
-        val newTotalDur = updated.maxOfOrNull { it.inPointSeconds + it.durationSeconds }?.coerceAtLeast(5.0) ?: 10.0
+        val newTotalDur = updated.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds }?.coerceAtLeast(5.0) ?: 10.0
         _uiState.value = _uiState.value.copy(
             clips = updated,
             totalDurationSeconds = newTotalDur
@@ -450,6 +464,37 @@ class WorkspaceViewModel(
         if (isCommitted) {
             persistCurrentProject()
         }
+    }
+
+    fun updateClipPosition(clipId: String, newTimelineStartSeconds: Double, newTrackIndex: Int = 0) {
+        val updated = _uiState.value.clips.map { clip ->
+            if (clip.id == clipId) {
+                clip.copy(
+                    timelineStartSeconds = newTimelineStartSeconds.coerceAtLeast(0.0),
+                    trackIndex = newTrackIndex.coerceIn(0, 2)
+                )
+            } else clip
+        }
+        val newTotalDur = updated.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds }?.coerceAtLeast(5.0) ?: 10.0
+        _uiState.value = _uiState.value.copy(
+            clips = updated,
+            totalDurationSeconds = newTotalDur
+        )
+        persistCurrentProject()
+    }
+
+    fun updateClipTransform(clipId: String, scale: Float, panX: Float, panY: Float) {
+        val updated = _uiState.value.clips.map { clip ->
+            if (clip.id == clipId) {
+                clip.copy(
+                    scale = scale.coerceIn(0.2f, 5.0f),
+                    panX = panX,
+                    panY = panY
+                )
+            } else clip
+        }
+        _uiState.value = _uiState.value.copy(clips = updated)
+        persistCurrentProject()
     }
 
     /**
@@ -493,21 +538,23 @@ class WorkspaceViewModel(
             lastAddedId = newId
             val title = if (isImage) "Photo ${currentClips.size + 1}" else "Clip ${currentClips.size + 1}"
             val duration = if (isImage) 2.0 else 10.0 // 2-second static video clip for images
-            val nextInPoint = currentClips.maxOfOrNull { it.inPointSeconds + it.durationSeconds } ?: 0.0
+            val nextTimelineStart = currentClips.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds } ?: 0.0
             val clip = TimelineClip(
                 id = newId,
                 title = title,
                 sourcePath = uriStr,
-                inPointSeconds = nextInPoint,
+                inPointSeconds = 0.0,
                 outPointSeconds = duration,
                 durationSeconds = duration,
+                timelineStartSeconds = nextTimelineStart,
+                trackIndex = 0,
                 isImage = isImage,
                 isSelected = false
             )
             currentClips.add(clip)
         }
         val finalClips = currentClips.map { it.copy(isSelected = it.id == lastAddedId) }
-        val newTotalDur = finalClips.maxOfOrNull { it.inPointSeconds + it.durationSeconds }?.coerceAtLeast(5.0) ?: 10.0
+        val newTotalDur = finalClips.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds }?.coerceAtLeast(5.0) ?: 10.0
         _uiState.value = _uiState.value.copy(
             clips = finalClips,
             selectedClipId = lastAddedId,

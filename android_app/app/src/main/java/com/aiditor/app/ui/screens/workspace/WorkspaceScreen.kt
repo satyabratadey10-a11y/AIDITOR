@@ -213,7 +213,11 @@ fun WorkspaceScreen(
                         },
                         videoPath = activeVideoPath,
                         clips = uiState.clips,
-                        overlays = uiState.overlays
+                        overlays = uiState.overlays,
+                        selectedClipId = uiState.selectedClipId,
+                        onUpdateClipTransform = { clipId, scale, px, py ->
+                            viewModel.updateClipTransform(clipId, scale, px, py)
+                        }
                     )
                 }
 
@@ -243,6 +247,9 @@ fun WorkspaceScreen(
                 onStopTracking = { viewModel.stopTracking() },
                 onTrimClipBoundaries = { clipId, newIn, newOut, isCommitted ->
                     viewModel.trimClipBoundaries(clipId, newIn, newOut, isCommitted)
+                },
+                onMoveClip = { clipId, newStart, trackIdx ->
+                    viewModel.updateClipPosition(clipId, newStart, trackIdx)
                 }
             )
         }

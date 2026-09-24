@@ -103,6 +103,12 @@ class ProjectRepository(
                     put("opticalFlowMode", clip.opticalFlowMode)
                     put("opticalFlowCachedUri", clip.opticalFlowCachedUri ?: "")
                     put("isImage", clip.isImage)
+                    put("timelineStartSeconds", clip.timelineStartSeconds)
+                    put("trackIndex", clip.trackIndex)
+                    put("scale", clip.scale.toDouble())
+                    put("panX", clip.panX.toDouble())
+                    put("panY", clip.panY.toDouble())
+                    put("rotation", clip.rotation.toDouble())
 
                     // Color Grade
                     val cg = clip.colorGrade
@@ -244,7 +250,13 @@ class ProjectRepository(
                         opticalFlowFps = cObj.optInt("opticalFlowFps", 60),
                         opticalFlowMode = cObj.optString("opticalFlowMode", "mci"),
                         opticalFlowCachedUri = cachedUri,
-                        isImage = cObj.optBoolean("isImage", false)
+                        isImage = cObj.optBoolean("isImage", false),
+                        timelineStartSeconds = cObj.optDouble("timelineStartSeconds", 0.0),
+                        trackIndex = cObj.optInt("trackIndex", 0),
+                        scale = cObj.optDouble("scale", 1.0).toFloat(),
+                        panX = cObj.optDouble("panX", 0.0).toFloat(),
+                        panY = cObj.optDouble("panY", 0.0).toFloat(),
+                        rotation = cObj.optDouble("rotation", 0.0).toFloat()
                     )
                 )
             }

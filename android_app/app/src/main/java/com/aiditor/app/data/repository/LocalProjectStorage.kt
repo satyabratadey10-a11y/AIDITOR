@@ -73,6 +73,11 @@ object LocalProjectStorage {
             cObj.put("in_point_seconds", c.inPointSeconds)
             cObj.put("out_point_seconds", c.outPointSeconds)
             cObj.put("speed_multiplier", c.speedMultiplier.toDouble())
+            cObj.put("timeline_start_seconds", c.timelineStartSeconds)
+            cObj.put("track_index", c.trackIndex)
+            cObj.put("scale", c.scale.toDouble())
+            cObj.put("pan_x", c.panX.toDouble())
+            cObj.put("pan_y", c.panY.toDouble())
             clipsArray.put(cObj)
         }
         obj.put("clips", clipsArray)
@@ -93,7 +98,12 @@ object LocalProjectStorage {
                         sourcePath = cObj.optString("source_path", ""),
                         inPointSeconds = cObj.optDouble("in_point_seconds", 0.0),
                         outPointSeconds = cObj.optDouble("out_point_seconds", 10.0),
-                        speedMultiplier = cObj.optDouble("speed_multiplier", 1.0).toFloat()
+                        speedMultiplier = cObj.optDouble("speed_multiplier", 1.0).toFloat(),
+                        timelineStartSeconds = cObj.optDouble("timeline_start_seconds", 0.0),
+                        trackIndex = cObj.optInt("track_index", 0),
+                        scale = cObj.optDouble("scale", 1.0).toFloat(),
+                        panX = cObj.optDouble("pan_x", 0.0).toFloat(),
+                        panY = cObj.optDouble("pan_y", 0.0).toFloat()
                     )
                 )
             }

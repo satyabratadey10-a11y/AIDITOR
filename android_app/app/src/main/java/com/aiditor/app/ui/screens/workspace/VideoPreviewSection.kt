@@ -795,7 +795,7 @@ fun VideoPreviewSection(
                                     color = greenColor,
                                     style = Stroke(width = 3.0f, cap = StrokeCap.Round, join = StrokeJoin.Round)
                                 )
-                                staticContour.forEachIndexed { idx, pt ->
+                                activeContour.forEachIndexed { idx, pt ->
                                     if (idx % 2 == 0) {
                                         val vx = pt.x * w
                                         val vy = pt.y * h

@@ -440,4 +440,51 @@ class ProjectModelTest {
         assertEquals(10, result.contours.size)
         assertEquals(24, result.contours.first().size)
     }
+
+    @Test
+    fun testWorkspaceClipMoveAndTransform() {
+        val vm = WorkspaceViewModel()
+        val project = Project(
+            id = "proj_transform",
+            name = "Test Transform",
+            videoPath = "vid.mp4",
+            durationSeconds = 10.0,
+            fileSizeBytes = 1024L,
+            fileSizeFormatted = "1 KB",
+            width = 1920,
+            height = 1080,
+            fps = 30.0,
+            clips = listOf(
+                TimelineClip(
+                    id = "c1",
+                    title = "Main Clip",
+                    sourcePath = "vid.mp4",
+                    inPointSeconds = 0.0,
+                    outPointSeconds = 10.0,
+                    durationSeconds = 10.0,
+                    timelineStartSeconds = 0.0,
+                    trackIndex = 0,
+                    scale = 1.0f,
+                    panX = 0.0f,
+                    panY = 0.0f,
+                    isSelected = true
+                )
+            )
+        )
+        vm.loadProject(project)
+
+        // Move clip along timeline and shift to Track 1
+        vm.updateClipPosition("c1", newTimelineStartSeconds = 3.5, newTrackIndex = 1)
+        val movedClip = vm.uiState.value.clips.first()
+        assertEquals(3.5, movedClip.timelineStartSeconds, 0.01)
+        assertEquals(1, movedClip.trackIndex)
+        assertEquals(13.5, vm.uiState.value.totalDurationSeconds, 0.01)
+
+        // Scale and Pan
+        vm.updateClipTransform("c1", scale = 1.8f, panX = 45f, panY = -30f)
+        val transformedClip = vm.uiState.value.clips.first()
+        assertEquals(1.8f, transformedClip.scale, 0.01f)
+        assertEquals(45f, transformedClip.panX, 0.01f)
+        assertEquals(-30f, transformedClip.panY, 0.01f)
+    }
 }

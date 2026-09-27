@@ -46,7 +46,7 @@ object LocalProjectStorage {
         } catch (_: Exception) {}
     }
 
-    private fun serializeProject(p: Project): JSONObject {
+    fun serializeProject(p: Project): JSONObject {
         val obj = JSONObject()
         obj.put("id", p.id)
         obj.put("name", p.name)
@@ -87,7 +87,7 @@ object LocalProjectStorage {
         return obj
     }
 
-    private fun deserializeProject(obj: JSONObject): Project {
+    fun deserializeProject(obj: JSONObject): Project {
         val clipsList = mutableListOf<TimelineClip>()
         val clipsArray = obj.optJSONArray("clips")
         if (clipsArray != null) {

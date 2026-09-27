@@ -597,8 +597,8 @@ class ProjectModelTest {
             )
         )
 
-        val json = LocalProjectStorage.projectToJson(project)
-        val restored = LocalProjectStorage.projectFromJson(json)
+        val json = LocalProjectStorage.serializeProject(project)
+        val restored = LocalProjectStorage.deserializeProject(json)
 
         assertNotNull(restored)
         assertEquals("proj_storage_test", restored!!.id)

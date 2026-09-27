@@ -487,4 +487,137 @@ class ProjectModelTest {
         assertEquals(45f, transformedClip.panX, 0.01f)
         assertEquals(-30f, transformedClip.panY, 0.01f)
     }
+
+    @Test
+    fun testImportMediaClipsVerticalStacking() {
+        val vm = WorkspaceViewModel()
+        val project = Project(
+            id = "proj_stack",
+            name = "Test Vertical Stacking",
+            videoPath = "vid.mp4",
+            durationSeconds = 10.0,
+            fileSizeBytes = 1024L,
+            fileSizeFormatted = "1 KB",
+            width = 1920,
+            height = 1080,
+            fps = 30.0,
+            clips = listOf(
+                TimelineClip(
+                    id = "c0",
+                    title = "Base Video",
+                    sourcePath = "vid.mp4",
+                    inPointSeconds = 0.0,
+                    outPointSeconds = 10.0,
+                    durationSeconds = 10.0,
+                    timelineStartSeconds = 0.0,
+                    trackIndex = 0
+                )
+            )
+        )
+        vm.loadProject(project)
+
+        // 1. Import 2 image clips: should stack vertically on trackIndex 1 and 2
+        vm.addMediaClips(listOf("file://photo1.jpg", "file://photo2.png"), isImage = true, isAudio = false)
+        val clipsAfterImages = vm.uiState.value.clips
+        assertEquals(3, clipsAfterImages.size)
+        assertEquals(0, clipsAfterImages[0].trackIndex)
+        assertEquals(1, clipsAfterImages[1].trackIndex)
+        assertTrue(clipsAfterImages[1].isImage)
+        assertFalse(clipsAfterImages[1].isAudio)
+        assertEquals(2.0, clipsAfterImages[1].durationSeconds, 0.01)
+        assertEquals(2, clipsAfterImages[2].trackIndex)
+        assertTrue(clipsAfterImages[2].isImage)
+
+        // 2. Import audio / song: should stack on trackIndex 3
+        vm.addMediaClips(listOf("file://soundtrack.mp3"), isImage = false, isAudio = true)
+        val clipsAfterAudio = vm.uiState.value.clips
+        assertEquals(4, clipsAfterAudio.size)
+        val audioClip = clipsAfterAudio[3]
+        assertEquals(3, audioClip.trackIndex)
+        assertTrue(audioClip.isAudio)
+        assertFalse(audioClip.isImage)
+        assertEquals(15.0, audioClip.durationSeconds, 0.01)
+
+        // 3. Move clip across vertical tracks (e.g. move audioClip to track 4, start 2.0s)
+        vm.updateClipPosition(audioClip.id, newTimelineStartSeconds = 2.0, newTrackIndex = 4)
+        val movedAudio = vm.uiState.value.clips.find { it.id == audioClip.id }!!
+        assertEquals(4, movedAudio.trackIndex)
+        assertEquals(2.0, movedAudio.timelineStartSeconds, 0.01)
+    }
+
+    @Test
+    fun testProjectSerializationWithAudioAndMultipleTracks() {
+        val project = Project(
+            id = "proj_storage_test",
+            name = "Storage Test Multi-Track",
+            videoPath = "vid.mp4",
+            durationSeconds = 20.0,
+            fileSizeBytes = 2048L,
+            fileSizeFormatted = "2 KB",
+            width = 1920,
+            height = 1080,
+            fps = 30.0,
+            clips = listOf(
+                TimelineClip(
+                    id = "c_vid",
+                    title = "Video Clip",
+                    sourcePath = "vid.mp4",
+                    inPointSeconds = 0.0,
+                    outPointSeconds = 10.0,
+                    durationSeconds = 10.0,
+                    timelineStartSeconds = 0.0,
+                    trackIndex = 0,
+                    isImage = false,
+                    isAudio = false
+                ),
+                TimelineClip(
+                    id = "c_img",
+                    title = "Image Clip",
+                    sourcePath = "photo.jpg",
+                    inPointSeconds = 0.0,
+                    outPointSeconds = 2.0,
+                    durationSeconds = 2.0,
+                    timelineStartSeconds = 1.0,
+                    trackIndex = 1,
+                    isImage = true,
+                    isAudio = false
+                ),
+                TimelineClip(
+                    id = "c_aud",
+                    title = "Song Clip",
+                    sourcePath = "song.mp3",
+                    inPointSeconds = 0.0,
+                    outPointSeconds = 15.0,
+                    durationSeconds = 15.0,
+                    timelineStartSeconds = 0.0,
+                    trackIndex = 2,
+                    isImage = false,
+                    isAudio = true
+                )
+            )
+        )
+
+        val json = LocalProjectStorage.projectToJson(project)
+        val restored = LocalProjectStorage.projectFromJson(json)
+
+        assertNotNull(restored)
+        assertEquals("proj_storage_test", restored!!.id)
+        assertEquals(3, restored.clips.size)
+
+        val restoredVid = restored.clips[0]
+        assertEquals(0, restoredVid.trackIndex)
+        assertFalse(restoredVid.isImage)
+        assertFalse(restoredVid.isAudio)
+
+        val restoredImg = restored.clips[1]
+        assertEquals(1, restoredImg.trackIndex)
+        assertTrue(restoredImg.isImage)
+        assertFalse(restoredImg.isAudio)
+
+        val restoredAud = restored.clips[2]
+        assertEquals(2, restoredAud.trackIndex)
+        assertFalse(restoredAud.isImage)
+        assertTrue(restoredAud.isAudio)
+        assertEquals(15.0, restoredAud.durationSeconds, 0.01)
+    }
 }

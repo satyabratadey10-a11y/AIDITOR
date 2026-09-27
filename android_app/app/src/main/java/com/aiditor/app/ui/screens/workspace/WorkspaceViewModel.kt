@@ -471,7 +471,7 @@ class WorkspaceViewModel(
             if (clip.id == clipId) {
                 clip.copy(
                     timelineStartSeconds = newTimelineStartSeconds.coerceAtLeast(0.0),
-                    trackIndex = newTrackIndex.coerceIn(0, 2)
+                    trackIndex = newTrackIndex.coerceIn(0, 10)
                 )
             } else clip
         }
@@ -528,17 +528,34 @@ class WorkspaceViewModel(
      * Imports multiple media clips (videos and/or images) at the timeline sequentially.
      * When user chooses an image, the app strictly treats the image as a 2.0-second static video clip.
      */
-    fun addMediaClips(uris: List<String>, isImage: Boolean = false) {
+    fun addMediaClips(uris: List<String>, isImage: Boolean = false, isAudio: Boolean = false) {
         if (uris.isEmpty()) return
         pushUndoState()
         val currentClips = _uiState.value.clips.toMutableList()
         var lastAddedId: String? = null
+
+        // Vertically stack newly imported media on distinct tracks
+        val baseNextTrack = if (currentClips.isNotEmpty()) {
+            (currentClips.maxOfOrNull { it.trackIndex } ?: -1) + 1
+        } else {
+            0
+        }
+        val playhead = _uiState.value.currentTimeSeconds.coerceAtLeast(0.0)
+
         uris.forEachIndexed { index, uriStr ->
             val newId = "clip_${System.currentTimeMillis()}_$index"
             lastAddedId = newId
-            val title = if (isImage) "Photo ${currentClips.size + 1}" else "Clip ${currentClips.size + 1}"
-            val duration = if (isImage) 2.0 else 10.0 // 2-second static video clip for images
-            val nextTimelineStart = currentClips.maxOfOrNull { it.timelineStartSeconds + it.durationSeconds } ?: 0.0
+            val title = when {
+                isAudio -> "Song ${currentClips.count { it.isAudio } + 1}"
+                isImage -> "Photo ${currentClips.count { it.isImage } + 1}"
+                else -> "Video ${currentClips.count { !it.isImage && !it.isAudio } + 1}"
+            }
+            val duration = when {
+                isAudio -> 15.0 // 15-second default audio track length
+                isImage -> 2.0  // 2-second static image clip
+                else -> 10.0    // 10-second default video
+            }
+            val clipTrackIndex = baseNextTrack + index
             val clip = TimelineClip(
                 id = newId,
                 title = title,
@@ -546,9 +563,10 @@ class WorkspaceViewModel(
                 inPointSeconds = 0.0,
                 outPointSeconds = duration,
                 durationSeconds = duration,
-                timelineStartSeconds = nextTimelineStart,
-                trackIndex = 0,
+                timelineStartSeconds = if (currentClips.isEmpty()) 0.0 else playhead,
+                trackIndex = clipTrackIndex,
                 isImage = isImage,
+                isAudio = isAudio,
                 isSelected = false
             )
             currentClips.add(clip)

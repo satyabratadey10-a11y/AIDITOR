@@ -37,6 +37,7 @@ fun BottomToolBar(
     onReplace: () -> Unit,
     onAddMedia: () -> Unit = {},
     onAddImage: () -> Unit,
+    onAddAudio: () -> Unit = {},
     onOpticalFlow: () -> Unit,
     onTune: () -> Unit,
     onSpeed: () -> Unit,
@@ -138,6 +139,13 @@ fun BottomToolBar(
                 iconRes = R.drawable.ic_image_overlay,
                 title = "Image",
                 onClick = onAddImage
+            )
+
+            // 7. Song / Audio Track
+            ToolItem(
+                iconRes = R.drawable.ic_beat_sync,
+                title = "+ Song",
+                onClick = onAddAudio
             )
 
             // 6. Optical Flow (Explicit, clearly labeled with ic_optical_flow)

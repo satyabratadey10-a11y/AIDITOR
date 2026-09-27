@@ -78,6 +78,8 @@ object LocalProjectStorage {
             cObj.put("scale", c.scale.toDouble())
             cObj.put("pan_x", c.panX.toDouble())
             cObj.put("pan_y", c.panY.toDouble())
+            cObj.put("is_image", c.isImage)
+            cObj.put("is_audio", c.isAudio)
             clipsArray.put(cObj)
         }
         obj.put("clips", clipsArray)
@@ -103,7 +105,9 @@ object LocalProjectStorage {
                         trackIndex = cObj.optInt("track_index", 0),
                         scale = cObj.optDouble("scale", 1.0).toFloat(),
                         panX = cObj.optDouble("pan_x", 0.0).toFloat(),
-                        panY = cObj.optDouble("pan_y", 0.0).toFloat()
+                        panY = cObj.optDouble("pan_y", 0.0).toFloat(),
+                        isImage = cObj.optBoolean("is_image", false),
+                        isAudio = cObj.optBoolean("is_audio", false)
                     )
                 )
             }

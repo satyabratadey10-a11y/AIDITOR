@@ -42,6 +42,7 @@ data class TimelineClip(
     val opticalFlowMode: String = "mci",
     val opticalFlowCachedUri: String? = null,
     val isImage: Boolean = false,
+    val isAudio: Boolean = false,
     val timelineStartSeconds: Double = 0.0,
     val trackIndex: Int = 0,
     val scale: Float = 1.0f,

@@ -74,7 +74,16 @@ fun WorkspaceScreen(
         contract = ActivityResultContracts.GetMultipleContents()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            viewModel.addMediaClips(uris.map { it.toString() }, isImage = true)
+            viewModel.addMediaClips(uris.map { it.toString() }, isImage = true, isAudio = false)
+        }
+    }
+
+    // Add audio/song launcher
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            viewModel.addMediaClips(uris.map { it.toString() }, isImage = false, isAudio = true)
         }
     }
 
@@ -140,6 +149,11 @@ fun WorkspaceScreen(
                     onAddImage = {
                         try {
                             addImagePickerLauncher.launch("image/*")
+                        } catch (_: Exception) {}
+                    },
+                    onAddAudio = {
+                        try {
+                            audioPickerLauncher.launch("audio/*")
                         } catch (_: Exception) {}
                     },
                     onOpticalFlow = {

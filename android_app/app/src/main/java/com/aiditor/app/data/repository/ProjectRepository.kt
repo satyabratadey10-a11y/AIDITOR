@@ -103,6 +103,7 @@ class ProjectRepository(
                     put("opticalFlowMode", clip.opticalFlowMode)
                     put("opticalFlowCachedUri", clip.opticalFlowCachedUri ?: "")
                     put("isImage", clip.isImage)
+                    put("isAudio", clip.isAudio)
                     put("timelineStartSeconds", clip.timelineStartSeconds)
                     put("trackIndex", clip.trackIndex)
                     put("scale", clip.scale.toDouble())
@@ -251,6 +252,7 @@ class ProjectRepository(
                         opticalFlowMode = cObj.optString("opticalFlowMode", "mci"),
                         opticalFlowCachedUri = cachedUri,
                         isImage = cObj.optBoolean("isImage", false),
+                        isAudio = cObj.optBoolean("isAudio", false),
                         timelineStartSeconds = cObj.optDouble("timelineStartSeconds", 0.0),
                         trackIndex = cObj.optInt("trackIndex", 0),
                         scale = cObj.optDouble("scale", 1.0).toFloat(),
